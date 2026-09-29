@@ -8,4 +8,5 @@ src-tauri/gen/
 .tooling/webview2.cab
 .tooling/webview-page.html
 artifacts/build/
+artifacts/*.md
 *.log
