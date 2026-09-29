@@ -1,0 +1,11 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+.tooling/downloads/
+.tooling/msvc/
+.tooling/*.exe
+.tooling/webview2.cab
+.tooling/webview-page.html
+artifacts/build/
+*.log
