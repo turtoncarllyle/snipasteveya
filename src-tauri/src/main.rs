@@ -1,88 +1,22 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod desktop;
+mod ocr;
+mod settings;
+
 use arboard::{Clipboard, ImageData};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use image::{DynamicImage, ImageFormat};
-use keyring::Entry;
-use reqwest::Client;
-use screenshots::Screen;
 use serde::{Deserialize, Serialize};
-use std::{borrow::Cow, io::Cursor, path::PathBuf, sync::Mutex, time::Duration};
+use std::{borrow::Cow, io::Cursor};
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
-    tray::TrayIconBuilder,
-    AppHandle, Emitter, Manager, Runtime,
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    AppHandle, Emitter, Manager, WebviewWindow, WindowEvent,
 };
-use tauri_plugin_autostart::ManagerExt as AutoStartManagerExt;
-use tauri_plugin_global_shortcut::{ShortcutEvent, ShortcutState};
+use tauri_plugin_global_shortcut::ShortcutState;
 
-#[cfg(feature = "local-ocr")]
-use oar_ocr::prelude::OAROCRBuilder;
-
-const APP_SERVICE: &str = "com.turtoncarllyle.snipasteveya";
-const SETTINGS_FILE: &str = "settings.json";
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CloudProvider {
-    pub name: String,
-    pub base_url: String,
-    pub model: String,
-    #[serde(default)]
-    pub api_key: Option<String>,
-    #[serde(default)]
-    pub api_key_configured: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Settings {
-    pub language: String,
-    pub theme: String,
-    pub autostart: bool,
-    pub f1_shortcut: String,
-    pub f3_shortcut: String,
-    pub ocr_engine: String,
-    pub provider: CloudProvider,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            language: "zh-CN".into(),
-            theme: "system".into(),
-            autostart: false,
-            f1_shortcut: "F1".into(),
-            f3_shortcut: "F3".into(),
-            ocr_engine: "local".into(),
-            provider: CloudProvider {
-                name: "DeepSeek".into(),
-                base_url: "https://api.deepseek.com".into(),
-                model: "deepseek-flash".into(),
-                api_key: None,
-                api_key_configured: false,
-            },
-        }
-    }
-}
-
-#[derive(Default)]
-pub struct AppState {
-    pub settings: Mutex<Settings>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CaptureFrame {
-    pub id: String,
-    pub data_url: String,
-    pub width: u32,
-    pub height: u32,
-    pub x: i32,
-    pub y: i32,
-}
-
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct CropRect {
     pub x: f64,
     pub y: f64,
@@ -90,249 +24,244 @@ pub struct CropRect {
     pub height: f64,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OcrResult {
-    pub text: String,
-    pub engine: String,
-    pub confidence: Option<f32>,
-}
-
-fn app_config_file<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
-    let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir.join(SETTINGS_FILE))
-}
-
 fn png_data_url(bytes: &[u8]) -> String {
     format!("data:image/png;base64,{}", BASE64.encode(bytes))
 }
 
 fn decode_image(base64: &str) -> Result<DynamicImage, String> {
-    let bytes = BASE64.decode(base64).map_err(|e| format!("图片数据无效: {e}"))?;
-    image::load_from_memory(&bytes).map_err(|e| format!("无法读取图片: {e}"))
+    let bytes = BASE64
+        .decode(base64.trim_start_matches("data:image/png;base64,"))
+        .map_err(|e| format!("图片数据无效 / Invalid image: {e}"))?;
+    image::load_from_memory(&bytes).map_err(|e| format!("无法读取图片 / Cannot read image: {e}"))
 }
 
 fn encode_png(image: &DynamicImage) -> Result<Vec<u8>, String> {
     let mut output = Cursor::new(Vec::new());
     image
         .write_to(&mut output, ImageFormat::Png)
-        .map_err(|e| format!("编码图片失败: {e}"))?;
+        .map_err(|e| e.to_string())?;
     Ok(output.into_inner())
 }
 
-fn credential_entry() -> Result<Entry, String> {
-    Entry::new(APP_SERVICE, "cloud-api-key").map_err(|e| e.to_string())
-}
-
-fn load_cloud_key() -> Option<String> {
-    credential_entry().ok()?.get_password().ok()
-}
-
-fn save_cloud_key(value: Option<&str>) -> Result<(), String> {
-    let entry = credential_entry()?;
-    match value.map(str::trim).filter(|value| !value.is_empty()) {
-        Some(key) => entry.set_password(key).map_err(|e| e.to_string()),
-        None => entry.delete_credential().map_err(|e| e.to_string()),
-    }
-}
-
-fn active_screen() -> Result<Screen, String> {
-    #[cfg(windows)]
+fn crop_image(image: &DynamicImage, rect: CropRect) -> Result<String, String> {
+    if ![rect.x, rect.y, rect.width, rect.height]
+        .iter()
+        .all(|n| n.is_finite())
+        || rect.width <= 0.0
+        || rect.height <= 0.0
     {
-        let mut point = windows_sys::Win32::Foundation::POINT { x: 0, y: 0 };
-        if unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut point) } != 0 {
-            if let Ok(screen) = Screen::from_point(point.x, point.y) {
-                return Ok(screen);
-            }
-        }
+        return Err("选区无效 / Invalid selection".into());
     }
-    Screen::all().map_err(|e| format!("无法读取显示器: {e}"))?.into_iter().next().ok_or_else(|| "没有可用的显示器".to_string())
-}
-
-#[tauri::command]
-fn capture_screen() -> Result<CaptureFrame, String> {
-    let screen = active_screen()?;
-    let display = screen.display_info;
-    let image = screen.capture().map_err(|e| format!("截图失败: {e}"))?;
-    let width = image.width();
-    let height = image.height();
-    let mut encoded = Cursor::new(Vec::new());
-    DynamicImage::ImageRgba8(image)
-        .write_to(&mut encoded, ImageFormat::Png)
-        .map_err(|e| format!("编码截图失败: {e}"))?;
-    Ok(CaptureFrame {
-        id: uuid::Uuid::new_v4().to_string(),
-        data_url: png_data_url(&encoded.into_inner()),
-        width,
-        height,
-        x: display.x,
-        y: display.y,
-    })
-}
-
-#[tauri::command]
-fn crop_capture(image_base64: String, rect: CropRect, source_width: u32, source_height: u32) -> Result<String, String> {
-    let image = decode_image(&image_base64)?;
-    let actual_width = image.width().min(source_width.max(1));
-    let actual_height = image.height().min(source_height.max(1));
-    let x = rect.x.round().clamp(0.0, actual_width.saturating_sub(1) as f64) as u32;
-    let y = rect.y.round().clamp(0.0, actual_height.saturating_sub(1) as f64) as u32;
-    let width = rect.width.round().max(1.0).min((actual_width - x) as f64) as u32;
-    let height = rect.height.round().max(1.0).min((actual_height - y) as f64) as u32;
-    Ok(png_data_url(&encode_png(&image.crop_imm(x, y, width, height))?))
+    let x = rect
+        .x
+        .round()
+        .clamp(0.0, image.width().saturating_sub(1) as f64) as u32;
+    let y = rect
+        .y
+        .round()
+        .clamp(0.0, image.height().saturating_sub(1) as f64) as u32;
+    let width = rect.width.round().max(1.0).min((image.width() - x) as f64) as u32;
+    let height = rect
+        .height
+        .round()
+        .max(1.0)
+        .min((image.height() - y) as f64) as u32;
+    Ok(png_data_url(&encode_png(
+        &image.crop_imm(x, y, width, height),
+    )?))
 }
 
 #[tauri::command]
 fn copy_image(image_base64: String) -> Result<(), String> {
     let image = decode_image(&image_base64)?.to_rgba8();
-    Clipboard::new().map_err(|e| format!("无法打开剪贴板: {e}"))?.set_image(ImageData {
-        width: image.width() as usize,
-        height: image.height() as usize,
-        bytes: Cow::Owned(image.into_raw()),
-    }).map_err(|e| format!("复制图片失败: {e}"))
+    Clipboard::new()
+        .map_err(|e| format!("无法打开剪贴板 / Cannot open clipboard: {e}"))?
+        .set_image(ImageData {
+            width: image.width() as usize,
+            height: image.height() as usize,
+            bytes: Cow::Owned(image.into_raw()),
+        })
+        .map_err(|e| format!("复制失败 / Copy failed: {e}"))
 }
 
-#[tauri::command]
 fn read_clipboard_image() -> Result<Option<String>, String> {
-    let mut clipboard = Clipboard::new().map_err(|e| format!("无法打开剪贴板: {e}"))?;
+    let mut clipboard =
+        Clipboard::new().map_err(|e| format!("无法打开剪贴板 / Cannot open clipboard: {e}"))?;
     let image = match clipboard.get_image() {
         Ok(image) => image,
-        Err(_) => return Ok(None),
+        Err(arboard::Error::ContentNotAvailable) => return Ok(None),
+        Err(error) => {
+            return Err(format!(
+                "剪贴板暂不可用，请重试 / Clipboard unavailable, try again: {error}"
+            ))
+        }
     };
-    let rgba = image::RgbaImage::from_raw(image.width as u32, image.height as u32, image.bytes.into_owned())
-        .ok_or_else(|| "剪贴板图片数据无效".to_string())?;
-    Ok(Some(png_data_url(&encode_png(&DynamicImage::ImageRgba8(rgba))?)))
+    let rgba = image::RgbaImage::from_raw(
+        image.width as u32,
+        image.height as u32,
+        image.bytes.into_owned(),
+    )
+    .ok_or_else(|| "剪贴板图片数据无效 / Invalid clipboard image".to_string())?;
+    Ok(Some(png_data_url(&encode_png(&DynamicImage::ImageRgba8(
+        rgba,
+    ))?)))
 }
 
 #[tauri::command]
-fn save_image(image_base64: String) -> Result<String, String> {
+async fn save_image(window: WebviewWindow, image_base64: String) -> Result<bool, String> {
     let image = decode_image(&image_base64)?;
-    let Some(path) = rfd::FileDialog::new().set_title("保存截图 / Save screenshot").add_filter("PNG image", &["png"]).set_file_name("SnipasteVeya-capture.png").save_file() else {
-        return Ok(String::new());
+    let path = rfd::AsyncFileDialog::new()
+        .set_parent(&window)
+        .set_title("保存图片 / Save image")
+        .add_filter("PNG", &["png"])
+        .set_file_name("SnipasteVeya.png")
+        .save_file()
+        .await;
+    let Some(path) = path else {
+        return Ok(false);
     };
-    image.save_with_format(&path, ImageFormat::Png).map_err(|e| format!("保存失败: {e}"))?;
-    Ok(path.to_string_lossy().into_owned())
+    tauri::async_runtime::spawn_blocking(move || {
+        image
+            .save_with_format(path.path(), ImageFormat::Png)
+            .map_err(|e| format!("保存失败 / Save failed: {e}"))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    Ok(true)
 }
 
 #[tauri::command]
 fn copy_text(text: String) -> Result<(), String> {
-    Clipboard::new().map_err(|e| format!("无法打开剪贴板: {e}"))?.set_text(text).map_err(|e| format!("复制文字失败: {e}"))
+    Clipboard::new()
+        .map_err(|e| e.to_string())?
+        .set_text(text)
+        .map_err(|e| format!("复制失败 / Copy failed: {e}"))
 }
 
-#[tauri::command]
-fn load_settings<R: Runtime>(app: AppHandle<R>, state: tauri::State<'_, AppState>) -> Result<Settings, String> {
-    let path = app_config_file(&app)?;
-    let mut settings = if path.exists() {
-        serde_json::from_str::<Settings>(&std::fs::read_to_string(path).map_err(|e| e.to_string())?).unwrap_or_default()
-    } else { Settings::default() };
-    settings.provider.api_key = None;
-    settings.provider.api_key_configured = load_cloud_key().is_some();
-    *state.settings.lock().map_err(|_| "设置锁已损坏".to_string())? = settings.clone();
-    Ok(settings)
-}
-
-#[tauri::command]
-fn save_settings<R: Runtime>(app: AppHandle<R>, state: tauri::State<'_, AppState>, mut settings: Settings) -> Result<Settings, String> {
-    if let Some(key) = settings.provider.api_key.as_deref() { save_cloud_key(Some(key))?; }
-    settings.provider.api_key = None;
-    settings.provider.api_key_configured = load_cloud_key().is_some();
-    let path = app_config_file(&app)?;
-    std::fs::write(path, serde_json::to_vec_pretty(&settings).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-    if settings.autostart { app.autolaunch().enable().map_err(|e| e.to_string())?; } else { app.autolaunch().disable().map_err(|e| e.to_string())?; }
-    *state.settings.lock().map_err(|_| "设置锁已损坏".to_string())? = settings.clone();
-    let _ = app.emit("settings-updated", settings.clone());
-    Ok(settings)
-}
-
-async fn cloud_ocr(image_base64: &str, provider: &CloudProvider) -> Result<String, String> {
-    let api_key = provider.api_key.clone().filter(|key| !key.trim().is_empty()).or_else(load_cloud_key).ok_or_else(|| "请先在设置中填写 API Key".to_string())?;
-    let endpoint = format!("{}/chat/completions", provider.base_url.trim_end_matches('/'));
-    let body = serde_json::json!({
-        "model": provider.model,
-        "temperature": 0,
-        "messages": [{"role": "user", "content": [
-            {"type": "text", "text": "请识别图片中的全部文字，保持原有换行和段落，只返回识别到的文字，不要解释。"},
-            {"type": "image_url", "image_url": {"url": format!("data:image/png;base64,{image_base64}")}}
-        ]}]
-    });
-    let response = Client::new().post(endpoint).bearer_auth(api_key).json(&body).timeout(Duration::from_secs(45)).send().await.map_err(|e| format!("云端 OCR 请求失败: {e}"))?;
-    let status = response.status();
-    let value: serde_json::Value = response.json().await.map_err(|e| format!("云端 OCR 响应无效: {e}"))?;
-    if !status.is_success() {
-        let message = value.get("error").and_then(|error| error.get("message")).and_then(serde_json::Value::as_str).unwrap_or("服务返回错误");
-        return Err(format!("云端 OCR ({})：{}", status.as_u16(), message));
+fn show_settings(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
     }
-    value.get("choices").and_then(|choices| choices.get(0)).and_then(|choice| choice.get("message")).and_then(|message| message.get("content")).and_then(serde_json::Value::as_str).map(str::to_string).ok_or_else(|| "云端 OCR 没有返回文字".to_string())
 }
 
-#[cfg(feature = "local-ocr")]
-fn local_ocr(image_base64: &str) -> Result<(String, Option<f32>), String> {
-    let bytes = BASE64.decode(image_base64).map_err(|e| format!("图片数据无效: {e}"))?;
-    let image = image25::load_from_memory(&bytes).map_err(|e| format!("无法读取图片: {e}"))?.to_rgb8();
-    let image = if image.width() > 2400 { image25::imageops::resize(&image, 2400, (image.height() as f64 * 2400.0 / image.width() as f64) as u32, image25::imageops::FilterType::Lanczos3) } else { image };
-    let ocr = OAROCRBuilder::new("pp-ocrv5_mobile_det.onnx", "pp-ocrv5_mobile_rec.onnx", "ppocrv5_dict.txt").image_batch_size(1).region_batch_size(8).build().map_err(|e| format!("本地 OCR 引擎初始化失败: {e}"))?;
-    let result = ocr.predict(vec![image]).map_err(|e| format!("本地 OCR 失败: {e}"))?.into_iter().next().ok_or_else(|| "本地 OCR 没有结果".to_string())?;
-    Ok((result.concatenated_text("\n"), result.average_confidence()))
-}
-
-#[cfg(not(feature = "local-ocr"))]
-fn local_ocr(_image_base64: &str) -> Result<(String, Option<f32>), String> {
-    Err("本地 OCR 引擎未编译".to_string())
-}
-
-#[tauri::command]
-async fn ocr_image(image_base64: String, engine: String, provider: CloudProvider) -> Result<OcrResult, String> {
-    if engine == "local" {
-        let (text, confidence) = tauri::async_runtime::spawn_blocking(move || local_ocr(&image_base64)).await.map_err(|e| e.to_string())??;
-        return Ok(OcrResult { text, engine, confidence });
+fn notify_error(app: &AppHandle, message: String) {
+    if let Ok(mut notice) = app.state::<settings::SettingsState>().notice.lock() {
+        *notice = Some(message.clone());
     }
-    let text = cloud_ocr(&image_base64, &provider).await?;
-    Ok(OcrResult { text, engine, confidence: None })
-}
-
-fn show_main<R: Runtime>(app: &AppHandle<R>) {
-    if let Some(window) = app.get_webview_window("main") { let _ = window.show(); let _ = window.set_focus(); }
+    show_settings(app);
+    let _ = app.emit_to("main", "app-notice", message);
 }
 
 fn main() {
-    let shortcut_plugin = tauri_plugin_global_shortcut::Builder::new().with_shortcuts(["F1", "F3", "SHIFT+F3"]).expect("invalid default shortcuts").with_handler(|app, shortcut, event: ShortcutEvent| {
-        if event.state != ShortcutState::Pressed { return; }
-        let name = shortcut.into_string();
-        show_main(app);
-        let _ = app.emit(if name == "F1" { "shortcut-f1" } else if name == "SHIFT+F3" { "shortcut-shift-f3" } else { "shortcut-f3" }, ());
-    }).build();
+    let shortcut_plugin = tauri_plugin_global_shortcut::Builder::new()
+        .with_handler(|app, shortcut, event| {
+            if event.state != ShortcutState::Pressed {
+                return;
+            }
+            if let Some(action) = settings::shortcut_action(app, shortcut) {
+                desktop::dispatch(app, action);
+            }
+        })
+        .build();
 
     tauri::Builder::default()
-        .manage(AppState::default())
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
+        .manage(settings::SettingsState::default())
+        .manage(desktop::DesktopState::default())
+        .manage(ocr::OcrState::default())
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_settings(app)
+        }))
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(shortcut_plugin)
-        .invoke_handler(tauri::generate_handler![capture_screen, crop_capture, copy_image, read_clipboard_image, save_image, copy_text, load_settings, save_settings, ocr_image])
+        .invoke_handler(tauri::generate_handler![
+            copy_image,
+            save_image,
+            copy_text,
+            settings::load_settings,
+            settings::save_settings,
+            settings::take_notice,
+            desktop::start_capture,
+            desktop::get_capture,
+            desktop::crop_capture,
+            desktop::finish_capture,
+            desktop::pin_clipboard,
+            desktop::pin_image,
+            desktop::toggle_pins,
+            desktop::get_window_image,
+            desktop::show_ready_window,
+            desktop::resize_pin,
+            desktop::open_ocr,
+            desktop::open_settings,
+            ocr::ocr_image,
+            ocr::cancel_ocr
+        ])
+        .on_window_event(|window, event| match event {
+            WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+            WindowEvent::Destroyed => {
+                desktop::window_destroyed(window.app_handle(), window.label());
+                ocr::cancel_window_jobs(window.app_handle(), window.label());
+            }
+            _ => {}
+        })
         .setup(|app| {
             if let Ok(resource_dir) = app.path().resource_dir() {
-                let ocr_dir = resource_dir.join("ocr");
-                let _ = std::fs::create_dir_all(&ocr_dir);
-                std::env::set_var("OAR_HOME", ocr_dir);
+                let bundled = resource_dir.join("resources").join("ocr");
+                let legacy = resource_dir.join("ocr");
+                let root = if bundled.exists() { bundled } else { legacy };
+                #[cfg(debug_assertions)]
+                let root = if root.exists() {
+                    root
+                } else {
+                    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/ocr")
+                };
+                std::env::set_var("OAR_HOME", root);
             }
-            let screenshot_item = MenuItemBuilder::with_id("screenshot", "截图 / Screenshot").build(app)?;
-            let paste_item = MenuItemBuilder::with_id("paste", "贴图 / Pin image").build(app)?;
-            let settings_item = MenuItemBuilder::with_id("settings", "设置 / Settings").build(app)?;
-            let quit_item = MenuItemBuilder::with_id("quit", "退出 / Quit").build(app)?;
-            let menu = MenuBuilder::new(app).items(&[&screenshot_item, &paste_item, &settings_item, &quit_item]).build()?;
+            let screenshot =
+                MenuItemBuilder::with_id("screenshot", "截图 / Screenshot").build(app)?;
+            let paste = MenuItemBuilder::with_id("paste", "贴图 / Pin image").build(app)?;
+            let settings = MenuItemBuilder::with_id("settings", "设置 / Settings").build(app)?;
+            let quit = MenuItemBuilder::with_id("quit", "退出 / Quit").build(app)?;
+            let menu = MenuBuilder::new(app)
+                .items(&[&screenshot, &paste, &settings, &quit])
+                .build()?;
             let mut tray = TrayIconBuilder::new();
             if let Some(icon) = app.default_window_icon().cloned() {
                 tray = tray.icon(icon);
             }
-            tray.menu(&menu).tooltip("SnipasteVeya").on_menu_event(|app, event| match event.id().as_ref() {
-                "screenshot" => { let _ = app.emit("shortcut-f1", ()); show_main(app); }
-                "paste" => { let _ = app.emit("shortcut-f3", ()); show_main(app); }
-                "settings" => { let _ = app.emit("open-settings", ()); show_main(app); }
-                "quit" => app.exit(0),
-                _ => {}
-            }).build(app)?;
+            tray.menu(&menu)
+                .show_menu_on_left_click(false)
+                .tooltip("SnipasteVeya · F1 / F3")
+                .on_tray_icon_event(|tray, event| match event {
+                    TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } => desktop::dispatch(tray.app_handle(), desktop::Action::Capture),
+                    TrayIconEvent::Click {
+                        button: MouseButton::Middle,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } => desktop::dispatch(tray.app_handle(), desktop::Action::Pin),
+                    _ => {}
+                })
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "screenshot" => desktop::dispatch(app, desktop::Action::Capture),
+                    "paste" => desktop::dispatch(app, desktop::Action::Pin),
+                    "settings" => show_settings(app),
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .build(app)?;
+            if let Err(error) = settings::initialize(app.handle()) {
+                notify_error(app.handle(), error);
+            }
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -342,24 +271,49 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
-    fn png_round_trip_keeps_crop_dimensions() {
-        let mut image = image::RgbaImage::new(12, 8);
-        for pixel in image.pixels_mut() { *pixel = image::Rgba([30, 100, 200, 255]); }
-        let data = BASE64.encode(encode_png(&DynamicImage::ImageRgba8(image)).expect("png"));
-        let cropped = crop_capture(data, CropRect { x: 2.0, y: 1.0, width: 5.0, height: 4.0 }, 12, 8).expect("crop");
-        let bytes = BASE64.decode(cropped.trim_start_matches("data:image/png;base64,")).expect("base64");
-        let result = image::load_from_memory(&bytes).expect("decode");
-        assert_eq!((result.width(), result.height()), (5, 4));
-    }
-
-    #[test]
-    fn default_settings_keep_local_ocr_and_shortcuts() {
-        let settings = Settings::default();
-        assert_eq!(settings.ocr_engine, "local");
-        assert_eq!(settings.f1_shortcut, "F1");
-        assert_eq!(settings.f3_shortcut, "F3");
-        assert!(!settings.autostart);
+    fn crop_round_trip_and_bounds() {
+        let image = DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            12,
+            8,
+            image::Rgba([30, 100, 200, 255]),
+        ));
+        let result = crop_image(
+            &image,
+            CropRect {
+                x: 2.0,
+                y: 1.0,
+                width: 5.0,
+                height: 4.0,
+            },
+        )
+        .unwrap();
+        let decoded = decode_image(&result).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (5, 4));
+        assert_eq!(decoded.to_rgba8().get_pixel(0, 0).0, [30, 100, 200, 255]);
+        let edge = decode_image(
+            &crop_image(
+                &image,
+                CropRect {
+                    x: 11.8,
+                    y: 7.9,
+                    width: 99.0,
+                    height: 99.0,
+                },
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!((edge.width(), edge.height()), (1, 1));
+        assert!(crop_image(
+            &image,
+            CropRect {
+                x: f64::NAN,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0
+            }
+        )
+        .is_err());
     }
 }

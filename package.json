@@ -1,6 +1,6 @@
 {
   "name": "snipasteveya",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "A focused Windows screenshot, pin and OCR utility.",
   "scripts": {
@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc --noEmit",
     "test:contract": "node tests/release-contract.mjs",
+    "test:capture": "node --test tests/capture.test.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"

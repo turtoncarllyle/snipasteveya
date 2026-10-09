@@ -7,6 +7,10 @@ src-tauri/gen/
 .tooling/*.exe
 .tooling/webview2.cab
 .tooling/webview-page.html
+.tooling/vc-redist/
+.tooling/vc-runtime/
+src-tauri/WebView2/
+src-tauri/runtime/
 artifacts/build/
 artifacts/*.md
 *.log

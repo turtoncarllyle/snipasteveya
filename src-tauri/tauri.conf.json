@@ -1,12 +1,13 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "SnipasteVeya",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "com.turtoncarllyle.snipasteveya",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-windows-runtime.ps1 && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-windows-runtime.ps1 && npm run build",
+    "beforeBundleCommand": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-bundle.ps1",
     "frontendDist": "../dist"
   },
   "app": {
@@ -14,16 +15,16 @@
     "windows": [
       {
         "label": "main",
-        "title": "SnipasteVeya",
-        "width": 780,
-        "height": 620,
-        "minWidth": 500,
-        "minHeight": 420,
+        "title": "SnipasteVeya · 设置 / Settings",
+        "width": 520,
+        "height": 600,
+        "minWidth": 440,
+        "minHeight": 480,
         "visible": false,
         "decorations": true,
         "resizable": true,
         "center": true,
-        "backgroundColor": "#0d1117"
+        "backgroundColor": "#f8f9fb"
       }
     ],
     "security": {
@@ -34,7 +35,10 @@
     "active": true,
     "targets": ["nsis"],
     "icon": ["icons/icon.ico", "icons/icon.png"],
-    "resources": ["resources/**/*"],
+    "resources": {
+      "resources/ocr/": "resources/ocr/",
+      "runtime/": "."
+    },
     "windows": {
       "nsis": {
         "installMode": "currentUser",
@@ -42,8 +46,8 @@
         "languages": ["SimpChinese", "English"]
       },
       "webviewInstallMode": {
-        "type": "offlineInstaller",
-        "silent": true
+        "type": "fixedRuntime",
+        "path": "WebView2/Microsoft.WebView2.FixedVersionRuntime.154.0.4258.37.x64"
       }
     }
   }
