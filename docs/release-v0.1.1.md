@@ -19,6 +19,8 @@
 
 验证：TypeScript 检查、前端生产构建、18 项前端逻辑测试、Rust 检查、12 项 Rust 测试与发布契约检查通过。真实中英文模型样本连续识别两次通过；云端成功、鉴权错误、不支持图片和超时使用本机 HTTP 模拟测试。
 
+安装包构建完成并核对了模型、固定 WebView2 和原生 DLL 的安装清单。便携 ZIP 已实际解压启动，设置窗口显示 0.1.1；确认 WebView2 子进程与 DirectML、Visual C++ DLL 均从解压目录加载，重复启动保留单实例。两个附件的本地 SHA-256 校验及便携包必要文件检查通过。
+
 实际验证环境为 Windows 10 x64（10.0.19045）。原生截图/贴图完整交互、多显示器/混合 DPI、登录启动、安装/覆盖安装/卸载、Windows 11 和真实云端厂商调用未完成本版验收。桌面自动化工具截图超时，不能把逻辑测试视为完整桌面实测。已有 v0.1.0 安装版未被本次验证覆盖。
 
 当前窗口吸附检测顶层窗口，暂不支持跨屏拼接框选。取消本地 OCR 会立即停止界面等待，但当前 ONNX 推理会运行到返回后丢弃结果。使用云端 OCR 需要实际支持图片的模型，选择服务本身不会上传图片。若 F1/F3 被其他截图软件占用，请关闭占用程序或更改快捷键后重新保存。
@@ -43,6 +45,8 @@ This release reworks the F1 capture, F3 pin and OCR desktop workflows and comple
 | `SHA256SUMS.txt` | SHA-256 checksums for both packages |
 
 Validation passed: TypeScript, the frontend production build, 18 frontend logic tests, Rust checking, 12 Rust tests and the release contract. The real bilingual model fixture passed twice using one cached engine. Cloud success, authentication failure, unsupported images and timeout were tested against a local HTTP mock.
+
+The installer was built and its resource list was checked for models, fixed WebView2 and native DLLs. The portable ZIP was extracted and launched, with Settings displaying 0.1.1. WebView2 processes, DirectML and Visual C++ DLLs were confirmed to load from the extracted package, and a second launch retained a single instance. Both local asset hashes and the portable package's required contents were verified.
 
 The actual test environment was Windows 10 x64 (10.0.19045). Full native capture/pin interactions, multiple displays/mixed DPI, login startup, install/upgrade/uninstall, Windows 11 and real cloud providers were not accepted as tested for this release. Desktop automation screenshots timed out; logic tests do not establish full desktop interaction correctness. The existing v0.1.0 installation was not overwritten during verification.
 
