@@ -180,6 +180,8 @@ fn recognize_local(
                 return Err(format!("缺少内置模型，请重新安装完整软件包 / Bundled model missing; reinstall the complete package: {file}"));
             }
         }
+        #[cfg(target_os = "macos")]
+        eprintln!("Building bundled OCR sessions from {}", root.display());
         *engine = Some(
             OAROCRBuilder::new(
                 root.join("pp-ocrv5_mobile_det.onnx"),
@@ -191,9 +193,13 @@ fn recognize_local(
             .build()
             .map_err(|e| format!("本地引擎初始化失败 / Local engine initialization failed: {e}"))?,
         );
+        #[cfg(target_os = "macos")]
+        eprintln!("Built bundled OCR sessions");
     }
     check_cancelled(cancelled)?;
     // ONNX's current native inference finishes before the cancellation boundary.
+    #[cfg(target_os = "macos")]
+    eprintln!("Running bundled OCR inference");
     let result = engine
         .as_ref()
         .unwrap()
@@ -224,11 +230,13 @@ fn initialize_macos_runtime() -> Result<(), String> {
                 std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                     .join("runtime-macos/libonnxruntime.dylib")
             };
+            eprintln!("Loading bundled macOS ONNX Runtime: {}", bundled.display());
             ort::init_from(&bundled)
                 .map_err(|e| {
                     format!("无法加载内置 OCR 运行库 / Cannot load bundled OCR runtime: {e}")
                 })?
                 .commit();
+            eprintln!("Loaded bundled macOS ONNX Runtime");
             Ok(())
         })
         .clone()
@@ -237,6 +245,7 @@ fn initialize_macos_runtime() -> Result<(), String> {
 // Used by packaging CI against the installed .app, without requesting capture permissions.
 #[cfg(all(target_os = "macos", feature = "local-ocr"))]
 pub fn check_ocr_bundle(fixture: &std::path::Path) -> Result<(), String> {
+    eprintln!("Checking bundled bilingual OCR: {}", fixture.display());
     let executable = std::env::current_exe().map_err(|e| e.to_string())?;
     let contents = executable
         .parent()
@@ -249,6 +258,7 @@ pub fn check_ocr_bundle(fixture: &std::path::Path) -> Result<(), String> {
         &BASE64.encode(bytes),
         &AtomicBool::new(false),
     )?;
+    eprintln!("Bundled OCR inference returned {} bytes", text.len());
     if !text.contains("中文") || !text.contains("Hello Windows") || !text.contains("2026") {
         return Err(format!("Bundled OCR smoke test failed: {text}"));
     }

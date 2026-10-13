@@ -6,6 +6,13 @@ $ErrorActionPreference = 'Stop'
 # Use this PowerShell edition's module when a parent process supplies a
 # PSModulePath containing modules from another PowerShell installation.
 Import-Module (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
+function Get-Sha256Hex {
+  param([Parameter(Mandatory)][string]$LiteralPath)
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  $stream = [System.IO.File]::OpenRead($LiteralPath)
+  try { return ([BitConverter]::ToString($sha.ComputeHash($stream)) -replace '-', '') }
+  finally { $stream.Dispose(); $sha.Dispose() }
+}
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $config = Get-Content -LiteralPath (Join-Path $projectRoot 'src-tauri\tauri.conf.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $runtimePath = Join-Path (Join-Path $projectRoot 'src-tauri') $config.bundle.windows.webviewInstallMode.path
@@ -21,7 +28,7 @@ if (!(Test-Path -LiteralPath $runtimeExe)) {
     & curl.exe --fail --location --silent --show-error --output $cab $cabUrl
     if ($LASTEXITCODE -ne 0) { throw 'Failed to download the fixed WebView2 runtime.' }
   }
-  if ((Get-FileHash -LiteralPath $cab -Algorithm SHA256).Hash -ne $cabHash) {
+  if ((Get-Sha256Hex -LiteralPath $cab) -ne $cabHash) {
     throw 'WebView2 CAB checksum mismatch. Obtain the pinned Microsoft runtime before building.'
   }
   $destination = Join-Path $projectRoot 'src-tauri\WebView2'

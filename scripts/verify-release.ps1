@@ -2,6 +2,13 @@
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+function Get-Sha256Hex {
+  param([Parameter(Mandatory)][string]$LiteralPath)
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  $stream = [System.IO.File]::OpenRead($LiteralPath)
+  try { return ([BitConverter]::ToString($sha.ComputeHash($stream)) -replace '-', '') }
+  finally { $stream.Dispose(); $sha.Dispose() }
+}
 $package = Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 if (!$Version) { $Version = $package.version }
 if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid version.' }
@@ -12,7 +19,7 @@ $portable = Join-Path $dir "SnipasteVeya-$Version-win-x64-portable.zip"
 $sums = Join-Path $dir 'SHA256SUMS.txt'
 foreach ($file in @($setup, $portable, $sums)) { if (!(Test-Path -LiteralPath $file)) { throw "Missing release asset: $file" } }
 $expected = foreach ($file in @($setup, $portable)) {
-  '{0}  {1}' -f (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash, [IO.Path]::GetFileName($file)
+  '{0}  {1}' -f (Get-Sha256Hex -LiteralPath $file), [IO.Path]::GetFileName($file)
 }
 $actual = @(Get-Content -LiteralPath $sums -Encoding UTF8 | Where-Object { $_.Trim() })
 if (@(Compare-Object $expected $actual).Count) { throw 'SHA256SUMS.txt does not match the release assets.' }

@@ -2,6 +2,13 @@
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+function Get-Sha256Hex {
+  param([Parameter(Mandatory)][string]$LiteralPath)
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  $stream = [System.IO.File]::OpenRead($LiteralPath)
+  try { return ([BitConverter]::ToString($sha.ComputeHash($stream)) -replace '-', '') }
+  finally { $stream.Dispose(); $sha.Dispose() }
+}
 $package = Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 if (!$Version) { $Version = $package.version }
 if ($Version -ne $package.version -or $Version -notmatch '^\d+\.\d+\.\d+$') { throw 'Package version must match package.json.' }
@@ -48,7 +55,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $setupAsset = Join-Path $artifactDir "SnipasteVeya-$Version-win-x64-setup.exe"
 Copy-Item -LiteralPath $setupSource -Destination $setupAsset
 $sumLines = foreach ($file in @($setupAsset, $zipPath)) {
-  '{0}  {1}' -f (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash, [IO.Path]::GetFileName($file)
+  '{0}  {1}' -f (Get-Sha256Hex -LiteralPath $file), [IO.Path]::GetFileName($file)
 }
 [IO.File]::WriteAllText((Join-Path $artifactDir 'SHA256SUMS.txt'), ($sumLines -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
 Write-Host "Created release assets in $artifactDir"
