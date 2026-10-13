@@ -22,7 +22,8 @@ const runtimeVariants = {
 const requestedArch = process.env.SNIPASTEVeya_MAC_ARCH ?? process.arch;
 const arch = requestedArch === "arm64" ? "arm64" : requestedArch === "x64" ? "x64" : null;
 if (!arch) throw new Error(`Unsupported macOS runtime architecture: ${requestedArch}`);
-const name = `onnxruntime-osx-${arch}-${version}`;
+const assetArch = arch === "x64" ? "x86_64" : "arm64";
+const name = `onnxruntime-osx-${assetArch}-${version}`;
 const { archiveHash, libraryHash } = runtimeVariants[arch];
 const directory = join(root, "src-tauri", "runtime-macos");
 
@@ -51,7 +52,7 @@ export async function prepareMacRuntime() {
     return;
   } catch { /* Stage from the verified archive below. */ }
   if (!(await stat(archive).catch(() => null))) {
-    const url = `https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/${name}.tgz`;
+    const url = `https://github.com/microsoft/onnxruntime/releases/download/v${version}/${name}.tgz`;
     const response = await fetch(url, { signal: AbortSignal.timeout(600_000) });
     if (!response.ok || !response.body) throw new Error(`ONNX Runtime download failed: ${response.status}`);
     const pending = `${archive}.partial`;
@@ -60,7 +61,7 @@ export async function prepareMacRuntime() {
     await rename(pending, archive);
   }
   if (await sha256(archive) !== archiveHash) throw new Error("Cached ONNX Runtime archive checksum mismatch");
-  const members = ["lib/libonnxruntime.1.22.0.dylib", "LICENSE", "ThirdPartyNotices.txt"];
+  const members = [`lib/libonnxruntime.${version}.dylib`, "LICENSE", "ThirdPartyNotices.txt"];
   execFileSync("tar", ["-xzf", archive, "-C", cache, ...members.map(file => `${name}/${file}`)], { stdio: "inherit" });
   await mkdir(directory, { recursive: true });
   await copyFile(join(cache, name, members[0]), join(directory, "libonnxruntime.dylib"));
