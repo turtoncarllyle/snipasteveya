@@ -19,8 +19,8 @@ Windows keeps native top-level window snapping. macOS currently freezes and sele
 
 ## 构建 / Build
 
-Tauri 的构建前命令已经改为跨平台 Node 脚本。Windows 会准备 WebView2、DirectML 和 Visual C++ DLL；macOS 会准备资源目录并由 ONNX Runtime 使用 macOS 对应的 CPU 运行库。
-Tauri build hooks now use cross-platform Node scripts. Windows stages WebView2, DirectML and Visual C++ DLLs; macOS stages the resource directory and uses the macOS CPU ONNX Runtime.
+Tauri 的构建前命令已经改为跨平台 Node 脚本。Windows 会准备 WebView2、DirectML 和 Visual C++ DLL；macOS 会准备资源目录并携带与目标架构匹配的 macOS CPU ONNX Runtime。
+Tauri build hooks now use cross-platform Node scripts. Windows stages WebView2, DirectML and Visual C++ DLLs; macOS stages the resource directory and bundles the macOS CPU ONNX Runtime matching the target architecture.
 
 ```text
 npm ci

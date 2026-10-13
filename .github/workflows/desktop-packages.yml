@@ -62,13 +62,16 @@ jobs:
             arch: x64
             target: x86_64-apple-darwin
             native_arch: x86_64
+            runtime_arch: x64
           - runner: macos-15
             arch: arm64
             target: aarch64-apple-darwin
             native_arch: arm64
+            runtime_arch: arm64
     runs-on: ${{ matrix.runner }}
     env:
       MACOSX_DEPLOYMENT_TARGET: "13.3"
+      SNIPASTEVeya_MAC_ARCH: ${{ matrix.runtime_arch }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

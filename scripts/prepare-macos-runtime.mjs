@@ -8,9 +8,22 @@ import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const name = "onnxruntime-osx-universal2-1.22.0";
-const archiveHash = "cfa6f6584d87555ed9f6e7e8a000d3947554d589efe3723b8bfa358cd263d03c";
-const libraryHash = "db045368293215c9d22aa7b8c983d688b3ae9ca1da3f64ffbe01ba7df31c3355";
+const version = "1.22.0";
+const runtimeVariants = {
+  arm64: {
+    archiveHash: "cab6dcbd77e7ec775390e7b73a8939d45fec3379b017c7cb74f5b204c1a1cc07",
+    libraryHash: "2b885992d3d6fa4130d39ec84a80d7504ff52750027c547bb22c86165f19406a",
+  },
+  x64: {
+    archiveHash: "e4ec94a7696de74fb1b12846569aa94e499958af6ffa186022cfde16c9d617f0",
+    libraryHash: "283e595e61cf65df7a6b1d59a1616cbd35c8b6399dd90d799d99b71a3ff83160",
+  },
+};
+const requestedArch = process.env.SNIPASTEVeya_MAC_ARCH ?? process.arch;
+const arch = requestedArch === "arm64" ? "arm64" : requestedArch === "x64" ? "x64" : null;
+if (!arch) throw new Error(`Unsupported macOS runtime architecture: ${requestedArch}`);
+const name = `onnxruntime-osx-${arch}-${version}`;
+const { archiveHash, libraryHash } = runtimeVariants[arch];
 const directory = join(root, "src-tauri", "runtime-macos");
 
 async function sha256(path) {
@@ -34,7 +47,7 @@ export async function prepareMacRuntime() {
   await mkdir(cache, { recursive: true });
   try {
     await verifyMacRuntime();
-    console.log("Verified bundled macOS ONNX Runtime 1.22.0 (Intel + Apple Silicon).");
+    console.log(`Verified bundled macOS ONNX Runtime ${version} (${arch}).`);
     return;
   } catch { /* Stage from the verified archive below. */ }
   if (!(await stat(archive).catch(() => null))) {
@@ -53,5 +66,5 @@ export async function prepareMacRuntime() {
   await copyFile(join(cache, name, members[0]), join(directory, "libonnxruntime.dylib"));
   for (const file of members.slice(1)) await copyFile(join(cache, name, file), join(directory, file));
   await verifyMacRuntime();
-  console.log("Prepared macOS ONNX Runtime 1.22.0 with licenses; no user download is needed.");
+  console.log(`Prepared macOS ONNX Runtime ${version} (${arch}) with licenses; no user download is needed.`);
 }

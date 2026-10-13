@@ -75,7 +75,7 @@ npm run tauri:build:macos -- --target aarch64-apple-darwin
 
 本地 OCR 直接读取 `src-tauri/resources/ocr/` 随包携带的模型，不在识别时自动下载。模型缺失时会明确报错。真实模型样本测试：`cargo test --manifest-path src-tauri/Cargo.toml bundled_models -- --ignored --nocapture`。
 
-构建前的跨平台脚本会根据当前系统准备运行时：Windows 下载并校验固定 WebView2 CAB、收集 x64 Visual C++ DLL，macOS 只准备 Tauri 资源目录。Windows 构建后的脚本会把 DirectML 加入安装资源；macOS 不使用 DirectML。下载产物与展开的运行库不提交到 Git；发布文件输出至 `artifacts/build/v0.1.2/`。`.github/workflows/desktop-packages.yml` 会在 Windows、Intel Mac 和 Apple Silicon Mac 上分别构建包。
+构建前的跨平台脚本会根据当前系统准备运行时：Windows 下载并校验固定 WebView2 CAB、收集 x64 Visual C++ DLL；macOS 下载并校验与当前架构匹配的 ONNX Runtime（Intel 或 Apple Silicon）。Windows 构建后的脚本会把 DirectML 加入安装资源；macOS 不使用 DirectML。下载产物与展开的运行库不提交到 Git；发布文件输出至 `artifacts/build/v0.1.2/`。`.github/workflows/desktop-packages.yml` 会在 Windows、Intel Mac 和 Apple Silicon Mac 上分别构建包。
 
 ## 项目结构
 

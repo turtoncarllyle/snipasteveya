@@ -75,7 +75,7 @@ npm run tauri:build:macos -- --target aarch64-apple-darwin
 
 Local OCR reads bundled files from `src-tauri/resources/ocr/` without downloading models during recognition. Missing models produce an explicit error. Run the real model fixture with `cargo test --manifest-path src-tauri/Cargo.toml bundled_models -- --ignored --nocapture`.
 
-The cross-platform preparation scripts stage the runtime for the current OS: Windows downloads and verifies the pinned WebView2 CAB and collects x64 Visual C++ DLLs, while macOS only creates the Tauri resource directory. The Windows bundle step adds DirectML; macOS does not use DirectML. Downloaded and extracted runtimes are not committed to Git; release assets are written to `artifacts/build/v0.1.2/`. `.github/workflows/desktop-packages.yml` builds Windows, Intel Mac and Apple Silicon Mac packages separately.
+The cross-platform preparation scripts stage the runtime for the current OS: Windows downloads and verifies the pinned WebView2 CAB and collects x64 Visual C++ DLLs, while macOS downloads and verifies the ONNX Runtime matching the current architecture (Intel or Apple Silicon). The Windows bundle step adds DirectML; macOS does not use DirectML. Downloaded and extracted runtimes are not committed to Git; release assets are written to `artifacts/build/v0.1.2/`. `.github/workflows/desktop-packages.yml` builds Windows, Intel Mac and Apple Silicon Mac packages separately.
 
 ## Structure
 
