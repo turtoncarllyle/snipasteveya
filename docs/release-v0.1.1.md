@@ -1,4 +1,4 @@
-# SnipasteVeya v0.1.1
+# SnipasteVeya v0.1.1 (历史 Windows 发布记录)
 
 ## 中文
 
@@ -25,7 +25,7 @@
 
 当前窗口吸附检测顶层窗口，暂不支持跨屏拼接框选。取消本地 OCR 会立即停止界面等待，但当前 ONNX 推理会运行到返回后丢弃结果。使用云端 OCR 需要实际支持图片的模型，选择服务本身不会上传图片。若 F1/F3 被其他截图软件占用，请关闭占用程序或更改快捷键后重新保存。
 
-仓库保持私有，下载需要相应 GitHub 访问权限。
+本记录对应历史 Windows-only 附件。仓库现已公开；跨平台源码和 macOS DMG 构建支持在后续带 `v*` 标签的 GitHub Actions 发布中提供。本机是 Windows，macOS 原生权限、菜单栏、DMG 安装和 F1/F3 交互不在本记录中宣称已验证。
 
 ## English
 
@@ -52,4 +52,4 @@ The actual test environment was Windows 10 x64 (10.0.19045). Full native capture
 
 Window snapping detects top-level windows; selections spanning displays are not supported. Cancelling local OCR releases the UI immediately, while the current ONNX inference finishes and its result is discarded. Cloud OCR requires an actual image-capable model; choosing a provider alone does not upload anything. If another screenshot app occupies F1/F3, close it or choose different shortcuts and save again.
 
-The repository remains private; downloads require GitHub access.
+This record covers the historical Windows-only assets. The repository is now public; the cross-platform source and macOS DMG workflow will be provided by a subsequent GitHub Actions release carrying a `v*` tag. This Windows workstation does not claim native macOS permissions, menu-bar behavior, DMG installation or live F1/F3 interaction as tested.

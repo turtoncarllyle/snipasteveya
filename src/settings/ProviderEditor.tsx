@@ -34,7 +34,7 @@ export function ProviderEditor({ draft, pending, error, onChange, onSave, onCanc
         onChange={event => { setInvalid(current => current.filter(item => item !== field)); onChange({ ...draft.value, [field]: event.target.value }); }} />
       {invalid.includes(field) && <span id={`provider-${field}-error`} className="field-error">{messages[field]}</span>}
     </div>)}
-    <p className="setting-hint">{t("仅在主动识别时发送当前图片。密钥保存在 Windows 凭据管理器。", "Only recognition sends the current image. Keys stay in Windows Credential Manager.")}</p>
+    <p className="setting-hint">{t("仅在主动识别时发送当前图片。密钥保存在系统凭据存储中。", "Only recognition sends the current image. Keys stay in the system credential store.")}</p>
     {error && <Feedback error>{error}</Feedback>}
     <div className="editor-actions"><button type="button" disabled={pending} onClick={onCancel}>{t("取消", "Cancel")}</button><button className="primary" disabled={pending} type="submit">{pending ? t("保存中…", "Saving…") : t("保存配置", "Save configuration")}</button></div>
     {draft.exists && draft.value.id !== "deepseek" && <div className="provider-delete">{confirmDelete ? <>

@@ -1,0 +1,18 @@
+{
+  "app": {
+    "macOSPrivateApi": true
+  },
+  "bundle": {
+    "targets": ["dmg"],
+    "resources": {
+      "resources/ocr/": "resources/ocr/",
+      "runtime-macos/LICENSE": "licenses/onnxruntime/LICENSE",
+      "runtime-macos/ThirdPartyNotices.txt": "licenses/onnxruntime/ThirdPartyNotices.txt"
+    },
+    "macOS": {
+      "minimumSystemVersion": "13.3",
+      "signingIdentity": "-",
+      "frameworks": ["runtime-macos/libonnxruntime.dylib"]
+    }
+  }
+}

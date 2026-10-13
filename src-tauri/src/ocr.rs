@@ -166,6 +166,8 @@ fn recognize_local(
     let mut engine = cache.lock().map_err(|e| e.to_string())?;
     check_cancelled(cancelled)?;
     if engine.is_none() {
+        #[cfg(target_os = "macos")]
+        initialize_macos_runtime()?;
         let root = std::env::var_os("OAR_HOME")
             .map(std::path::PathBuf::from)
             .ok_or_else(|| "找不到内置 OCR 模型 / Bundled OCR models unavailable".to_string())?;
@@ -202,6 +204,56 @@ fn recognize_local(
         .ok_or_else(|| "没有识别结果 / No OCR result".to_string())?;
     check_cancelled(cancelled)?;
     Ok((result.concatenated_text("\n"), result.average_confidence()))
+}
+
+#[cfg(all(target_os = "macos", feature = "local-ocr"))]
+fn initialize_macos_runtime() -> Result<(), String> {
+    static INITIALIZED: std::sync::OnceLock<Result<(), String>> = std::sync::OnceLock::new();
+    INITIALIZED
+        .get_or_init(|| {
+            let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+            let contents = executable
+                .parent()
+                .and_then(std::path::Path::parent)
+                .ok_or("Cannot locate app bundle")?;
+            let bundled = contents.join("Frameworks/libonnxruntime.dylib");
+            #[cfg(any(debug_assertions, test))]
+            let bundled = if bundled.is_file() {
+                bundled
+            } else {
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("runtime-macos/libonnxruntime.dylib")
+            };
+            ort::init_from(&bundled)
+                .map_err(|e| {
+                    format!("无法加载内置 OCR 运行库 / Cannot load bundled OCR runtime: {e}")
+                })?
+                .commit();
+            Ok(())
+        })
+        .clone()
+}
+
+// Used by packaging CI against the installed .app, without requesting capture permissions.
+#[cfg(all(target_os = "macos", feature = "local-ocr"))]
+pub fn check_ocr_bundle(fixture: &std::path::Path) -> Result<(), String> {
+    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+    let contents = executable
+        .parent()
+        .and_then(std::path::Path::parent)
+        .ok_or("Cannot locate app bundle")?;
+    std::env::set_var("OAR_HOME", contents.join("Resources/resources/ocr"));
+    let bytes = std::fs::read(fixture).map_err(|e| e.to_string())?;
+    let (text, _) = recognize_local(
+        &Mutex::new(None),
+        &BASE64.encode(bytes),
+        &AtomicBool::new(false),
+    )?;
+    if !text.contains("中文") || !text.contains("Hello Windows") || !text.contains("2026") {
+        return Err(format!("Bundled OCR smoke test failed: {text}"));
+    }
+    println!("Bundled bilingual OCR passed: {text}");
+    Ok(())
 }
 
 #[cfg(not(feature = "local-ocr"))]

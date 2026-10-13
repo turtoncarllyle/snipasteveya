@@ -226,6 +226,18 @@ fn apply_window_appearance(
 }
 
 fn main() {
+    #[cfg(all(target_os = "macos", feature = "local-ocr"))]
+    if std::env::args().nth(1).as_deref() == Some("--check-ocr-bundle") {
+        let result = std::env::args_os()
+            .nth(2)
+            .ok_or_else(|| "Expected bilingual fixture path".to_string())
+            .and_then(|path| ocr::check_ocr_bundle(std::path::Path::new(&path)));
+        if let Err(error) = result {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     let shortcut_plugin = tauri_plugin_global_shortcut::Builder::new()
         .with_handler(|app, shortcut, event| {
             if settings::route_shortcut_recording(
@@ -295,6 +307,11 @@ fn main() {
             _ => {}
         })
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            {
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                app.set_menu(Menu::default(app.handle())?)?;
+            }
             if let Ok(resource_dir) = app.path().resource_dir() {
                 let bundled = resource_dir.join("resources").join("ocr");
                 let legacy = resource_dir.join("ocr");
@@ -313,14 +330,16 @@ fn main() {
                 tray = tray.icon(icon);
             }
             tray.menu(&menu)
-                .show_menu_on_left_click(false)
+                .show_menu_on_left_click(cfg!(target_os = "macos"))
                 .tooltip("SnipasteVeya · F1 / F3")
                 .on_tray_icon_event(|tray, event| match event {
                     TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
                         ..
-                    } => desktop::dispatch(tray.app_handle(), desktop::Action::Capture),
+                    } if !cfg!(target_os = "macos") => {
+                        desktop::dispatch(tray.app_handle(), desktop::Action::Capture)
+                    }
                     TrayIconEvent::Click {
                         button: MouseButton::Middle,
                         button_state: MouseButtonState::Up,

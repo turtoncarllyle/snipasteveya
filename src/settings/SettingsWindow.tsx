@@ -107,7 +107,7 @@ export function SettingsWindow({ settings, onSaved, notice, t }: { settings: App
         <SettingRow id="theme" label={t("外观", "Appearance")} error={errors.theme}>
           <select id="theme" value={current.theme} disabled={pending.has("theme")} onChange={event => update("theme", event.target.value as AppSettings["theme"])}><option value="system">{t("跟随系统", "System")}</option><option value="light">{t("浅色", "Light")}</option><option value="dark">{t("深色", "Dark")}</option></select>
         </SettingRow>
-        <SettingRow id="autostart" label={t("开机启动", "Start with Windows")} hint={t("登录后在托盘运行", "Launch quietly in the tray")} error={errors.autostart}>
+        <SettingRow id="autostart" label={t("登录启动", "Start at login")} hint={t("登录后在托盘运行", "Launch quietly in the tray")} error={errors.autostart}>
           <input id="autostart" className="switch" type="checkbox" role="switch" checked={current.autostart} disabled={pending.has("autostart")} aria-busy={pending.has("autostart")} onChange={event => update("autostart", event.target.checked)} />
         </SettingRow>
       </section>

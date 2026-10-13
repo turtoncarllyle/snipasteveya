@@ -5,12 +5,14 @@ src-tauri/gen/
 .tooling/downloads/
 .tooling/msvc/
 .tooling/*.exe
+.tooling/cargo-metadata.json
 .tooling/webview2.cab
 .tooling/webview-page.html
 .tooling/vc-redist/
 .tooling/vc-runtime/
 src-tauri/WebView2/
 src-tauri/runtime/
+src-tauri/runtime-macos/
 artifacts/build/
 artifacts/*.md
 *.log

@@ -40,8 +40,22 @@ pub struct CaptureFrame {
 struct CaptureSession {
     frame: CaptureFrame,
     pixels: DynamicImage,
+    display_id: u32,
     previous_window: isize,
     restore_focus: bool,
+}
+
+#[derive(Clone, Copy)]
+struct PreviousSelection {
+    display_id: u32,
+    size: (u32, u32),
+    rect: CropRect,
+}
+
+impl PreviousSelection {
+    fn for_display(self, display_id: u32, size: (u32, u32)) -> Option<CropRect> {
+        (self.display_id == display_id && self.size == size).then_some(self.rect)
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -63,7 +77,7 @@ pub struct DesktopState {
     starting: AtomicBool,
     images: Mutex<HashMap<String, ImageEntry>>,
     pins_hidden: AtomicBool,
-    last_selection: Mutex<Option<CropRect>>,
+    last_selection: Mutex<Option<PreviousSelection>>,
 }
 
 pub fn dispatch(app: &AppHandle, action: Action) {
@@ -80,16 +94,44 @@ pub fn dispatch(app: &AppHandle, action: Action) {
     });
 }
 
-fn cursor() -> (i32, i32) {
+// screenshots uses physical desktop pixels on Windows and logical points on macOS.
+fn cursor(_app: &AppHandle) -> Result<(i32, i32), String> {
     #[cfg(windows)]
     unsafe {
         let mut point = windows_sys::Win32::Foundation::POINT { x: 0, y: 0 };
         windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut point);
-        return (point.x, point.y);
+        return Ok((point.x, point.y));
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
     {
-        (0, 0)
+        let point = _app.cursor_position().map_err(|e| e.to_string())?;
+        // Tao expresses the global pointer using the primary display's scale.
+        let scale = _app
+            .primary_monitor()
+            .map_err(|e| e.to_string())?
+            .map(|monitor| monitor.scale_factor())
+            .unwrap_or(1.0);
+        let logical = point.to_logical::<f64>(scale);
+        Ok((logical.x.round() as i32, logical.y.round() as i32))
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        Ok((0, 0))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn check_capture_permission() -> Result<(), String> {
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGPreflightScreenCaptureAccess() -> bool;
+        fn CGRequestScreenCaptureAccess() -> bool;
+    }
+    // Request access only when the user starts capture, never at app startup.
+    if unsafe { CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() } {
+        Ok(())
+    } else {
+        Err("请在系统设置 → 隐私与安全性 → 屏幕录制中允许 SnipasteVeya，随后退出并重新打开应用。 / Allow SnipasteVeya in System Settings → Privacy & Security → Screen Recording, then quit and reopen the app.".into())
     }
 }
 
@@ -104,14 +146,14 @@ fn foreground() -> isize {
     }
 }
 
-fn restore_foreground(handle: isize) {
+fn restore_foreground(_handle: isize) {
     #[cfg(windows)]
     unsafe {
         use windows_sys::Win32::UI::WindowsAndMessaging::{
             IsWindow, IsWindowVisible, SetForegroundWindow,
         };
-        let window = handle as windows_sys::Win32::Foundation::HWND;
-        if handle != 0 && IsWindow(window) != 0 && IsWindowVisible(window) != 0 {
+        let window = _handle as windows_sys::Win32::Foundation::HWND;
+        if _handle != 0 && IsWindow(window) != 0 && IsWindowVisible(window) != 0 {
             SetForegroundWindow(window);
         }
     }
@@ -228,8 +270,10 @@ pub async fn start_capture(app: AppHandle) -> Result<(), String> {
 }
 
 async fn begin_capture(app: &AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    check_capture_permission()?;
     let previous_window = foreground();
-    let point = cursor();
+    let point = cursor(app)?;
     let handle = app.clone();
     let (sender, receiver) = tokio::sync::oneshot::channel();
     app.run_on_main_thread(move || {
@@ -245,6 +289,9 @@ async fn begin_capture(app: &AppHandle) -> Result<(), String> {
     })
     .map_err(|e| e.to_string())?;
     receiver.await.map_err(|e| e.to_string())?;
+    // macOS has no DwmFlush; allow the WindowServer to commit the hide before capture.
+    #[cfg(target_os = "macos")]
+    tokio::time::sleep(std::time::Duration::from_millis(120)).await;
     let last = *app
         .state::<DesktopState>()
         .last_selection
@@ -278,18 +325,21 @@ async fn begin_capture(app: &AppHandle) -> Result<(), String> {
             x: screen.display_info.x,
             y: screen.display_info.y,
             window_targets: window_targets(bounds),
-            previous_selection: last.and_then(|rect| intersect_relative(rect, bounds)),
+            previous_selection: last.and_then(|selection| {
+                selection.for_display(screen.display_info.id, (pixels.width(), pixels.height()))
+            }),
         };
         Ok::<_, String>(CaptureSession {
             frame,
             pixels,
+            display_id: screen.display_info.id,
             previous_window,
             restore_focus: true,
         })
     })
     .await
     .map_err(|e| e.to_string())??;
-    let position = PhysicalPosition::new(session.frame.x as f64, session.frame.y as f64);
+    let origin = (session.frame.x as f64, session.frame.y as f64);
     *app.state::<DesktopState>()
         .capture
         .lock()
@@ -308,7 +358,14 @@ async fn begin_capture(app: &AppHandle) -> Result<(), String> {
     .skip_taskbar(true)
     .build()
     .map_err(|e| e.to_string())?;
-    if let Err(error) = window.set_fullscreen_on_monitor(position) {
+    #[cfg(not(target_os = "macos"))]
+    let placement = window.set_fullscreen_on_monitor(PhysicalPosition::new(origin.0, origin.1));
+    #[cfg(target_os = "macos")]
+    let placement = window
+        .set_position(tauri::LogicalPosition::new(origin.0, origin.1))
+        // Capture overlays stay in the current desktop instead of animating to a new Space.
+        .and_then(|_| window.set_simple_fullscreen(true));
+    if let Err(error) = placement {
         let _ = window.close();
         return Err(error.to_string());
     }
@@ -335,10 +392,10 @@ pub fn crop_capture(app: AppHandle, capture_id: String, rect: CropRect) -> Resul
         .filter(|s| s.frame.id == capture_id)
         .ok_or_else(|| "截图已结束 / Capture has ended".to_string())?;
     let image = crop_image(&session.pixels, rect)?;
-    *state.last_selection.lock().map_err(|e| e.to_string())? = Some(CropRect {
-        x: rect.x + session.frame.x as f64,
-        y: rect.y + session.frame.y as f64,
-        ..rect
+    *state.last_selection.lock().map_err(|e| e.to_string())? = Some(PreviousSelection {
+        display_id: session.display_id,
+        size: (session.frame.width, session.frame.height),
+        rect,
     });
     Ok(image)
 }
@@ -370,13 +427,15 @@ pub async fn pin_clipboard(app: AppHandle) -> Result<String, String> {
 
 async fn image_window(app: &AppHandle, image_base64: String, pin: bool) -> Result<String, String> {
     let image = decode_image(&image_base64)?;
-    let point = cursor();
+    let point = cursor(app)?;
     let monitor = app
         .monitor_from_point(point.0 as f64, point.1 as f64)
         .map_err(|e| e.to_string())?
         .or(app.primary_monitor().map_err(|e| e.to_string())?)
         .ok_or_else(|| "没有可用显示器 / No monitor".to_string())?;
     let area = monitor.work_area();
+    #[cfg(target_os = "macos")]
+    let point = logical_to_physical(point, monitor.scale_factor());
     let scale = 1.0_f64
         .min((area.size.width as f64 - 40.0) / image.width() as f64)
         .min((area.size.height as f64 - 40.0) / image.height() as f64)
@@ -448,8 +507,15 @@ async fn image_window(app: &AppHandle, image_base64: String, pin: bool) -> Resul
     .build();
     match result {
         Ok(window) => {
+            #[cfg(target_os = "macos")]
+            let position = tauri::Position::Logical(tauri::LogicalPosition::new(
+                x as f64 / monitor.scale_factor(),
+                y as f64 / monitor.scale_factor(),
+            ));
+            #[cfg(not(target_os = "macos"))]
+            let position = tauri::Position::Physical(PhysicalPosition::new(x, y));
             if let Err(error) = window
-                .set_position(PhysicalPosition::new(x, y))
+                .set_position(position)
                 .and_then(|_| window.set_size(PhysicalSize::new(width.max(1), height.max(1))))
             {
                 let _ = window.close();
@@ -471,6 +537,14 @@ async fn image_window(app: &AppHandle, image_base64: String, pin: bool) -> Resul
             Err(error.to_string())
         }
     }
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn logical_to_physical(point: (i32, i32), scale: f64) -> (i32, i32) {
+    (
+        (point.0 as f64 * scale).round() as i32,
+        (point.1 as f64 * scale).round() as i32,
+    )
 }
 
 #[tauri::command]
@@ -659,6 +733,23 @@ pub fn window_destroyed(app: &AppHandle, label: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn retina_coordinates_and_previous_selection_stay_in_their_own_spaces() {
+        assert_eq!(logical_to_physical((-1280, 300), 2.0), (-2560, 600));
+        let previous = PreviousSelection {
+            display_id: 7,
+            size: (2880, 1800),
+            rect: CropRect {
+                x: 40.0,
+                y: 80.0,
+                width: 600.0,
+                height: 200.0,
+            },
+        };
+        assert_eq!(previous.for_display(7, (2880, 1800)), Some(previous.rect));
+        assert!(previous.for_display(8, (2880, 1800)).is_none());
+        assert!(previous.for_display(7, (1440, 900)).is_none());
+    }
     #[test]
     fn snapping_clips_windows_on_negative_coordinate_monitors() {
         let screen = CropRect {

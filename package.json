@@ -1,18 +1,22 @@
 {
   "name": "snipasteveya",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
-  "description": "A focused Windows screenshot, pin and OCR utility.",
+  "description": "A focused cross-platform screenshot, pin and OCR utility for Windows and macOS.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
+    "prepare:runtime": "node scripts/prepare-runtime.mjs",
+    "prepare:bundle": "node scripts/prepare-bundle.mjs",
     "test:contract": "node tests/release-contract.mjs",
     "test:capture": "node --test tests/capture.test.mjs",
     "test:settings": "node --test tests/settings.test.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "tauri:build:windows": "tauri build --config src-tauri/tauri.windows.conf.json --bundles nsis",
+    "tauri:build:macos": "tauri build --config src-tauri/tauri.macos.conf.json --bundles dmg"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",
