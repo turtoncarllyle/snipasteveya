@@ -13,7 +13,7 @@ use std::{
     },
 };
 use tauri::{
-    AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder,
 };
 
@@ -419,7 +419,7 @@ async fn image_window(app: &AppHandle, image_base64: String, pin: bool) -> Resul
                 ready: false,
             },
         );
-    let result = WebviewWindowBuilder::new(
+    let builder = WebviewWindowBuilder::new(
         app,
         &label,
         WebviewUrl::App(format!("index.html?view={view}").into()),
@@ -439,7 +439,12 @@ async fn image_window(app: &AppHandle, image_base64: String, pin: bool) -> Resul
     .inner_size(
         width as f64 / monitor.scale_factor(),
         height as f64 / monitor.scale_factor(),
-    )
+    );
+    let result = if pin {
+        builder
+    } else {
+        builder.min_inner_size(440.0, 320.0)
+    }
     .build();
     match result {
         Ok(window) => {
@@ -490,7 +495,20 @@ pub async fn open_ocr(app: AppHandle, image_base64: String) -> Result<String, St
 }
 
 #[tauri::command]
-pub fn open_settings(app: AppHandle) {
+pub fn open_settings(app: AppHandle, section: Option<String>, provider_id: Option<String>) {
+    if section.as_deref() == Some("ocr") {
+        if let Ok(mut navigation) = app
+            .state::<crate::settings::SettingsState>()
+            .navigation
+            .lock()
+        {
+            *navigation = Some(crate::settings::SettingsNavigation {
+                section: "ocr".into(),
+                provider_id,
+            });
+        }
+        let _ = app.emit_to("main", "settings-navigate", ());
+    }
     crate::show_settings(&app);
 }
 
@@ -507,6 +525,8 @@ pub fn get_window_image(app: AppHandle, window: WebviewWindow) -> Result<WindowI
 
 #[tauri::command]
 pub fn show_ready_window(app: AppHandle, window: WebviewWindow) -> Result<(), String> {
+    crate::apply_window_appearance(&window, &crate::settings::current(&app)?)
+        .map_err(|error| error.to_string())?;
     if let Some(entry) = app
         .state::<DesktopState>()
         .images

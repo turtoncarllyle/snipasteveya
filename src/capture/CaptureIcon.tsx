@@ -1,6 +1,7 @@
-export type CaptureIconName = "shapes" | "rectangle" | "ellipse" | "arrow" | "pen" | "highlight" | "mosaic" | "text" | "eraser" | "undo" | "redo" | "ocr" | "cancel" | "pin" | "save" | "copy";
+export type CaptureIconName = "capture" | "shapes" | "rectangle" | "ellipse" | "arrow" | "pen" | "highlight" | "mosaic" | "text" | "eraser" | "undo" | "redo" | "ocr" | "cancel" | "pin" | "save" | "copy";
 
 const paths: Record<CaptureIconName, string> = {
+  capture: "M8 3H3v5 M16 3h5v5 M21 16v5h-5 M8 21H3v-5 M7 7h10v10H7z",
   shapes: "M3 5h12v10H3z M21 16a5 5 0 1 1-10 0 5 5 0 0 1 10 0",
   rectangle: "M3 5h18v14H3z",
   ellipse: "M21 12a9 7 0 1 1-18 0 9 7 0 0 1 18 0",

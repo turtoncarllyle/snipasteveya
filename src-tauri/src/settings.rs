@@ -2,7 +2,7 @@ use crate::desktop::Action;
 use keyring::Entry;
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::Mutex};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 use tauri_plugin_autostart::ManagerExt as AutoStartManagerExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
@@ -65,7 +65,105 @@ impl Default for Settings {
 pub struct SettingsState {
     pub settings: Mutex<Settings>,
     pub notice: Mutex<Option<String>>,
+    pub navigation: Mutex<Option<SettingsNavigation>>,
+    recorder: Mutex<ShortcutRecorder>,
     save_lock: tokio::sync::Mutex<()>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsNavigation {
+    pub section: String,
+    pub provider_id: Option<String>,
+}
+
+#[derive(Debug, PartialEq)]
+enum RecordingRoute {
+    Pass,
+    Capture,
+    Suppress,
+}
+
+#[derive(Default)]
+struct ShortcutRecorder {
+    active: bool,
+    held: Vec<Shortcut>,
+}
+
+impl ShortcutRecorder {
+    fn route(&mut self, shortcut: Shortcut, pressed: bool) -> RecordingRoute {
+        let held = self.held.contains(&shortcut);
+        if !pressed {
+            self.held.retain(|key| key != &shortcut);
+            return if self.active || held {
+                RecordingRoute::Suppress
+            } else {
+                RecordingRoute::Pass
+            };
+        }
+        if held {
+            return RecordingRoute::Suppress;
+        }
+        if self.active {
+            self.held.push(shortcut);
+            RecordingRoute::Capture
+        } else {
+            RecordingRoute::Pass
+        }
+    }
+}
+
+pub fn stop_shortcut_recording(app: &AppHandle) {
+    if let Ok(mut recorder) = app.state::<SettingsState>().recorder.lock() {
+        recorder.active = false;
+    }
+}
+
+/// Registered hotkeys may not reach WebView keydown. Forward them while recording.
+pub fn route_shortcut_recording(app: &AppHandle, shortcut: Shortcut, pressed: bool) -> bool {
+    // Query the UI before locking: focus events also update the recorder.
+    let focused = app
+        .get_webview_window("main")
+        .is_some_and(|window| window.is_focused().unwrap_or(false));
+    let state = app.state::<SettingsState>();
+    let Ok(mut recorder) = state.recorder.lock() else {
+        return false;
+    };
+    if !focused {
+        recorder.active = false;
+    }
+    let route = recorder.route(shortcut, pressed);
+    drop(recorder);
+    if route == RecordingRoute::Capture {
+        let _ = app.emit_to("main", "shortcut-recorded", shortcut.into_string());
+    }
+    route != RecordingRoute::Pass
+}
+
+#[tauri::command]
+pub fn set_shortcut_recording(
+    app: AppHandle,
+    window: WebviewWindow,
+    recording: bool,
+) -> Result<(), String> {
+    if window.label() != "main" || recording && !window.is_focused().map_err(|e| e.to_string())? {
+        return Err(
+            "请在设置窗口录制快捷键 / Record shortcuts in the focused settings window".into(),
+        );
+    }
+    app.state::<SettingsState>()
+        .recorder
+        .lock()
+        .map_err(|e| e.to_string())?
+        .active = recording;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn take_settings_navigation(
+    state: tauri::State<'_, SettingsState>,
+) -> Option<SettingsNavigation> {
+    state.navigation.lock().ok()?.take()
 }
 
 fn config_file(app: &AppHandle) -> Result<PathBuf, String> {
@@ -381,12 +479,42 @@ pub async fn save_settings(app: AppHandle, mut settings: Settings) -> Result<Set
         .collect::<Vec<_>>();
     *state.notice.lock().map_err(|e| e.to_string())? = shortcut_notice(&settings, &unavailable);
     let _ = app.emit("settings-updated", &settings);
+    if let Err(error) = crate::refresh_interface(&app, &settings) {
+        eprintln!("Cannot refresh native appearance: {error}");
+    }
     Ok(settings)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn recording_suppresses_capture_and_key_repeats_until_release() {
+        let key = "F1".parse().unwrap();
+        let mut recorder = ShortcutRecorder {
+            active: true,
+            ..Default::default()
+        };
+        assert_eq!(recorder.route(key, true), RecordingRoute::Capture);
+        recorder.active = false;
+        assert_eq!(recorder.route(key, true), RecordingRoute::Suppress);
+        assert_eq!(recorder.route(key, false), RecordingRoute::Suppress);
+        assert_eq!(recorder.route(key, true), RecordingRoute::Pass);
+    }
+    #[test]
+    fn recording_cancellation_restores_unheld_hotkeys() {
+        let mut recorder = ShortcutRecorder::default();
+        recorder.active = true;
+        assert_eq!(
+            recorder.route("Shift+F3".parse().unwrap(), true),
+            RecordingRoute::Capture
+        );
+        recorder.active = false;
+        assert_eq!(
+            recorder.route("F3".parse().unwrap(), true),
+            RecordingRoute::Pass
+        );
+    }
     #[test]
     fn shortcut_routing_uses_identity_including_shift() {
         let keys = shortcuts(&Settings::default()).unwrap();

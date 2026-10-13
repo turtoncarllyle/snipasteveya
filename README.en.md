@@ -13,6 +13,9 @@ SnipasteVeya is a focused screenshot, pinned-image and OCR utility for Windows 1
 - **AI OCR**: a DeepSeek preset and multiple saved OpenAI-compatible providers, each with its own credential. Select an actual model that supports image input; presets do not guarantee model capabilities. Images are sent only when you explicitly use cloud OCR. Changing the dropdown alone does not send an image.
 - **Start with Windows**: the switch updates only after successful per-user startup registration, with rollback on failure. Login starts in the tray; quitting does not remove the setting. Shortcuts are editable; new conflicts retain previous bindings, while existing conflicts do not block unrelated settings.
 - **Language and theme**: Simplified Chinese/English plus system, light and dark themes.
+- **Simple settings**: general preferences save automatically; recording a shortcut suppresses capture/pin actions. Cloud providers use separate drafts that remain available when Settings is hidden. Save a completed provider explicitly without affecting unrelated preferences. OCR can open the relevant provider configuration directly.
+
+The capture toolbar groups annotation, editing, image actions and completion, with Copy as the primary action. Hover or keyboard focus reveals action hints. OCR emphasizes editable text and Copy text, with one area for progress, cancellation and errors.
 
 Accounts, subscriptions, history management, translation, summaries and a complex dashboard remain outside the scope. Closing Settings keeps the app in the tray. Version 0.1.1 reworks desktop capture, independent pins and the OCR result window.
 
@@ -41,6 +44,7 @@ Both packages target Windows 10/11 x64 and include PP-OCRv5 mobile models, fixed
 npm ci
 npm run typecheck
 npm run test:capture
+npm run test:settings
 npm run build
 
 # Rust checks and tests
@@ -78,7 +82,7 @@ Local captures stay in memory until the user saves one. Cloud OCR is never calle
 
 The repository records TypeScript checks, Vite builds, Rust checks/tests, Windows x64 packaging and asset checksums. Real DeepSeek requests, multi-monitor/DPI combinations, and install/upgrade/uninstall behavior on both Windows 10 and Windows 11 require testing on those systems; release notes distinguish untested scenarios clearly.
 
-Window snapping currently detects top-level windows, not individual UI controls or selections spanning displays. See the latest [interaction verification record](docs/verification-2026-10-09.md).
+Window snapping currently detects top-level windows, not individual UI controls or selections spanning displays. See the latest [UI verification record](docs/verification-ui-2026-10-10.md) and the earlier [desktop interaction verification](docs/verification-2026-10-09.md).
 
 See the [v0.1.1 release record](docs/release-v0.1.1.md) for this release's changes and verification scope.
 

@@ -1,7 +1,7 @@
 .snip-capture {
   position: relative; width: 100vw; height: 100vh; overflow: hidden; color-scheme: inherit;
-  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
-  --snip-blue: #2f91ff; --snip-ink: var(--text); --snip-panel: var(--panel);
+  font-family: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  --snip-blue: #449bff; --snip-ink: var(--text); --snip-panel: var(--panel);
   background: #17191d; user-select: none;
 }
 .snip-surface { position: absolute; inset: 0; overflow: hidden; cursor: crosshair; touch-action: none; }
@@ -21,32 +21,40 @@
 .snip-handle-s { left: calc(50% - 4px); bottom: -5px; cursor: ns-resize; }
 .snip-handle-sw { left: -5px; bottom: -5px; cursor: nesw-resize; }
 .snip-handle-w { left: -5px; top: calc(50% - 4px); cursor: ew-resize; }
-.snip-dimensions { position: absolute; padding: 4px 7px; display: flex; gap: 8px; color: #fff; background: rgb(24 26 29 / 94%); font: 12px/18px Consolas, monospace; pointer-events: none; white-space: nowrap; }
+.snip-dimensions { position: absolute; padding: 3px 8px; display: flex; gap: 8px; border-radius: 4px; color: #fff; background: rgb(24 26 29 / 94%); font: 12px/18px Consolas, monospace; pointer-events: none; white-space: nowrap; }
 .snip-dimensions span { color: #cbd0d6; padding-left: 7px; border-left: 1px solid #52565b; }
-.snip-tools { position: absolute; z-index: 3; display: grid; justify-items: end; gap: 5px; max-width: calc(100vw - 16px); }
-.snip-toolbar, .snip-options { display: flex; flex-wrap: wrap; align-items: center; gap: 1px; padding: 3px; background: var(--snip-panel); color: var(--snip-ink); border: 1px solid #b5bcc5; border-radius: 3px; box-shadow: 0 2px 8px rgb(0 0 0 / 16%); }
-.snip-toolbar { border-color: #8cbeff; }
-.snip-button { width: 28px; height: 28px; min-height:28px; padding: 5px; display: inline-grid; place-items: center; flex: 0 0 auto; background: transparent; color: var(--snip-ink); border: 1px solid transparent; border-radius: 2px; }
-.snip-button svg { display: block; width: 17px; height: 17px; }
+.snip-tools { position: absolute; z-index: 3; display: grid; justify-items: end; gap: 6px; width: max-content; max-width: calc(100vw - 16px); }
+.snip-toolbar, .snip-options { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px; max-width: 100%; background: var(--snip-panel); color: var(--snip-ink); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
+.snip-tool-group, .snip-option-group { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
+.snip-tool-group + .snip-tool-group, .snip-option-group + .snip-option-group { border-left: 1px solid var(--line); padding-left: 6px; }
+.snip-button { width: 32px; height: 32px; min-height: 32px; padding: 6px; display: inline-flex; justify-content: center; align-items: center; gap: 5px; flex: 0 0 auto; background: transparent; color: var(--snip-ink); border: 1px solid transparent; border-radius: 5px; }
+.snip-button svg { display: block; width: 18px; height: 18px; }
+.snip-labelled { width: auto; padding: 6px 9px; white-space: nowrap; }
 .snip-button:hover:not(:disabled) { background: var(--hover); }
-.snip-button[aria-pressed="true"] { color: var(--accent); background: var(--hover); border-color: var(--accent); }
-.snip-copy { color: var(--accent); }
+.snip-button[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); border-color: var(--accent); }
+.snip-copy { color: #fff; background: #2563eb; border-color: #2563eb; }
+.snip-copy:hover:not(:disabled) { background: #1d4ed8; border-color: #1d4ed8; }
+.snip-copy > kbd { font-size: 12px; margin-left: 4px; padding-left: 7px; border-left: 1px solid #ffffff60; }
+.snip-tooltip { position: fixed; z-index: 10; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; max-width: calc(100vw - 16px); padding: 6px 9px; border-radius: 5px; color: #fff; background: #202733; border: 1px solid #ffffff30; font-size: 12px; font-weight: 400; line-height: 18px; white-space: nowrap; pointer-events: none; box-shadow: 0 2px 8px #0003; }
+.snip-tooltip kbd { color: #c5d3e8; }
 .snip-button:disabled { opacity: .35; }
 .snip-button:focus-visible, .snip-swatch:focus-visible, .snip-handle:focus-visible { outline: 2px solid #1268bf; outline-offset: 1px; }
 .snip-divider { flex: 0 0 1px; width: 1px; height: 17px; background: #cbd0d6; margin: 0 4px; }
-.snip-options { padding: 3px 6px; gap: 4px; }
-.snip-swatch { width: 20px; height: 20px; min-height:20px; padding: 0; border: 3px solid var(--snip-panel); border-radius: 50%; background: var(--swatch); box-shadow: 0 0 0 1px #cbd0d6; }
+.snip-options { padding: 4px 7px; gap: 6px; }
+.snip-swatch { width: 24px; height: 24px; min-height: 24px; padding: 0; border: 4px solid var(--snip-panel); border-radius: 50%; background: var(--swatch); box-shadow: 0 0 0 1px var(--line); }
 .snip-swatch:hover:not(:disabled) { background:var(--swatch); }
 .snip-swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--snip-blue); }
 .snip-widths { display: flex; padding-left: 4px; gap: 1px; }
 .snip-widths span { display: block; border-radius: 50%; background: currentColor; }
-.snip-options select { min-width: 68px; min-height:26px; height: 26px; padding: 0 4px; color: var(--snip-ink); background: var(--snip-panel); border: 1px solid var(--line); border-radius: 2px; font-size: 12px; }
+.snip-options select { min-width: 68px; min-height: 30px; height: 30px; padding: 0 4px; color: var(--snip-ink); background: var(--snip-panel); border: 1px solid var(--line); border-radius: 5px; font-size: 12px; }
+.snip-font-label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
 .snip-text-input { position: absolute; z-index: 2; margin: 0; padding: 0; min-height: 1.5em; height: 4em; resize: none; border: 1px dashed #2f91ff; border-radius: 0; background: rgb(255 255 255 / 10%); font-family: "Segoe UI", "Microsoft YaHei", sans-serif; line-height: 1.3; outline: none; overflow: auto; user-select: text; }
 .snip-text-input::placeholder { color: inherit; opacity: .65; }
 .snip-start-hint, .snip-feedback { position: absolute; left: 50%; bottom: 30px; transform: translateX(-50%); padding: 8px 14px; color: #fff; background: rgb(24 26 29 / 94%); border-radius: 4px; font-size: 13px; pointer-events: none; }
-.snip-feedback { z-index: 5; max-width: calc(100% - 32px); overflow-wrap: anywhere; }
+.snip-feedback { z-index: 5; max-width: calc(100% - 32px); overflow-wrap: anywhere; display: flex; align-items: center; gap: 12px; pointer-events: auto; border-radius: 6px; }
+.snip-feedback button { min-height: 28px; padding: 3px 9px; color: #fff; background: #ffffff18; border-color: #ffffff60; flex-shrink: 0; }
 .snip-hover-target { position:absolute; border:2px solid var(--snip-blue); background:#2f91ff12; pointer-events:none; }
-.snip-magnifier { position:absolute; z-index:4; width:136px; background:#20242b; color:#fff; border:1px solid #fff8; box-shadow:0 3px 14px #0004; pointer-events:none; font:11px Consolas,monospace; }
+.snip-magnifier { position:absolute; z-index:4; width:136px; background:#20242b; color:#fff; border:1px solid #fff8; border-radius:6px; overflow:hidden; box-shadow:0 3px 14px #0004; pointer-events:none; font:12px Consolas,monospace; }
 .snip-lens { position:relative; width:134px; height:134px; overflow:hidden; }
 .snip-lens canvas { width:100%; height:100%; image-rendering:pixelated; }
 .snip-lens span { position:absolute; left:calc(50% - 4px); top:calc(50% - 4px); width:8px; height:8px; border:1px solid #fff; outline:1px solid #000; }
@@ -55,4 +63,4 @@
 .snip-lens::after { top:50%; left:0; height:1px; width:100%; }
 .snip-magnifier > div:last-child { display:flex; align-items:center; gap:6px; height:23px; padding:3px 6px; }
 .snip-magnifier i { width:10px; height:10px; border:1px solid #ffffff88; }
-.snip-magnifier kbd { margin-left:auto; color:#aeb7c5; font-size:10px; }
+.snip-magnifier kbd { margin-left:auto; color:#c5d3e8; font-size:12px; }

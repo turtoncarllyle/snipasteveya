@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -b",
     "test:contract": "node tests/release-contract.mjs",
     "test:capture": "node --test tests/capture.test.mjs",
+    "test:settings": "node --test tests/settings.test.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"

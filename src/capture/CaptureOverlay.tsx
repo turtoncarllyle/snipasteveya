@@ -3,7 +3,7 @@ import type { CaptureFrame, Rect } from "../types";
 import { emptyHistory, historyReducer, hitAnnotation, type Annotation, type Tool } from "./annotations";
 import { between, clamp, contains, fitImage, handles, imagePoint, moveRect, nudgeRect, pixelRect, resizeRect, screenRect, toolbarPosition, type Handle, type Point, type Size } from "./geometry";
 import { annotationFont, composeSelection, drawAnnotations } from "./render";
-import { CaptureIcon, type CaptureIconName } from "./CaptureIcon";
+import { CaptureToolbar, ToolOptions, swatches, toolDefinitions, type OutputAction } from "./CaptureToolbar";
 import { Magnifier, pixelColor } from "./Magnifier";
 import "./capture.css";
 
@@ -22,18 +22,6 @@ interface Props {
 }
 type Interaction = {kind: "select" | "move" | "resize"; start: Point; original: Rect | null; handle?: Handle} | {kind: "draw"};
 interface TextDraft { point: Point; text: string; color: string; fontSize: number }
-type OutputAction = "copy" | "pin" | "save" | "ocr";
-const swatches = ["#ef4444", "#f5c542", "#2f91ff", "#2eb875", "#ffffff", "#20242b"];
-const toolDefinitions: {tool: Tool; icon: CaptureIconName; zh: string; en: string; shortcut: string}[] = [
-  {tool:"rectangle", icon:"shapes", zh:"矩形 / 椭圆", en:"Rectangle / ellipse", shortcut:"1"},
-  {tool:"arrow", icon:"arrow", zh:"箭头", en:"Arrow", shortcut:"2"},
-  {tool:"pen", icon:"pen", zh:"画笔", en:"Pen", shortcut:"3"},
-  {tool:"highlight", icon:"highlight", zh:"荧光笔", en:"Highlighter", shortcut:"4"},
-  {tool:"mosaic", icon:"mosaic", zh:"马赛克", en:"Mosaic", shortcut:"5"},
-  {tool:"text", icon:"text", zh:"文字", en:"Text", shortcut:"6"},
-  {tool:"eraser", icon:"eraser", zh:"橡皮擦：删除标注", en:"Eraser: remove annotation", shortcut:"7"},
-];
-
 export function CaptureOverlay({frame, disabled, t, onCrop, onCopy, onPin, onSave, onOcr, onCancel, onReady, onCopyColor}: Props) {
   const surfaceRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -43,7 +31,7 @@ export function CaptureOverlay({frame, disabled, t, onCrop, onCopy, onPin, onSav
   const alive = useRef(true);
   const busyRef = useRef(false);
   const [viewport, setViewport] = useState<Size>({width: window.innerWidth, height: window.innerHeight});
-  const [toolbarSize, setToolbarSize] = useState<Size>({width: 438, height: 36});
+  const [toolbarSize, setToolbarSize] = useState<Size>({width: 590, height: 42});
   const [selection, setSelection] = useState<Rect | null>(null);
   const [draggingSelection, setDraggingSelection] = useState(false);
   const [source, setSource] = useState<HTMLImageElement | null>(null);
@@ -56,6 +44,7 @@ export function CaptureOverlay({frame, disabled, t, onCrop, onCopy, onPin, onSav
   const [textDraft, setTextDraft] = useState<TextDraft | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [retryAction, setRetryAction] = useState<OutputAction | null>(null);
   const [pointer, setPointer] = useState<Point | null>(null);
   const [altHeld, setAltHeld] = useState(false);
   const [feedback, setFeedback] = useState("");
@@ -68,7 +57,7 @@ export function CaptureOverlay({frame, disabled, t, onCrop, onCopy, onPin, onSav
   const hoverBox = hoverTarget ? screenRect(hoverTarget,frame,viewport) : null;
   const cancel = useCallback(() => {
     alive.current = false;
-    void onCancel();
+    void onCancel().catch(error => { alive.current = true; setError(String(error)); });
   }, [onCancel]);
 
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
@@ -122,6 +111,7 @@ export function CaptureOverlay({frame, disabled, t, onCrop, onCopy, onPin, onSav
     busyRef.current = true;
     setBusy(true);
     setError("");
+    setRetryAction(action);
     try {
       const marks = commitText();
       const cropped = await onCrop(selected);
@@ -136,6 +126,8 @@ export function CaptureOverlay({frame, disabled, t, onCrop, onCopy, onPin, onSav
       if (alive.current) setBusy(false);
     }
   }, [selected, source, disabled, commitText, onCrop, onCopy, onPin, onSave, onOcr]);
+
+  useEffect(() => { if (!feedback) return; const timer = setTimeout(() => setFeedback(""), 1800); return () => clearTimeout(timer); }, [feedback]);
 
   const keyHandler = useRef<(event: KeyboardEvent) => void>(() => {});
   useLayoutEffect(() => {
@@ -261,7 +253,6 @@ export function CaptureOverlay({frame, disabled, t, onCrop, onCopy, onPin, onSav
   };
 
   const textPosition = textDraft ? {x:fit.x+textDraft.point.x*fit.scale, y:fit.y+textDraft.point.y*fit.scale} : null;
-  const hasOptions = tool && tool !== "eraser";
   return <main className="snip-capture" aria-label={t("截图", "Screenshot")}>
     <div ref={surfaceRef} className={`snip-surface ${tool ? `snip-tool-${tool}` : selected ? "snip-can-move" : ""}`}
       onPointerDown={start} onPointerMove={move} onPointerUp={event => finish(event)} onPointerCancel={event => finish(event,true)}
@@ -281,32 +272,18 @@ export function CaptureOverlay({frame, disabled, t, onCrop, onCopy, onPin, onSav
       </> : <><div className="snip-shade snip-shade-full" />{hoverBox && <div className="snip-hover-target" style={{left:hoverBox.x,top:hoverBox.y,width:hoverBox.width,height:hoverBox.height}} />}</>}
     </div>
     {box && <div ref={toolbarRef} className="snip-tools" style={{left:toolbar.x,top:toolbar.y,visibility:draggingSelection?"hidden":"visible"}}>
-      <div className="snip-toolbar" role="toolbar" aria-label={t("截图工具栏","Screenshot toolbar")}>
-        {toolDefinitions.map(item => <button key={item.tool} type="button" className="snip-button" disabled={locked} aria-pressed={tool===item.tool || item.tool==="rectangle" && tool==="ellipse"}
-          title={`${t(item.zh,item.en)} (Ctrl+${item.shortcut})`} aria-label={t(item.zh,item.en)} aria-keyshortcuts={`Control+${item.shortcut}`} onClick={() => chooseTool(item.tool)}><CaptureIcon name={item.tool==="rectangle" && tool==="ellipse"?"ellipse":item.icon} /></button>)}
-        <span className="snip-divider" />
-        <button type="button" className="snip-button" disabled={locked||!history.past.length} title={t("撤销 (Ctrl+Z)","Undo (Ctrl+Z)")} aria-label={t("撤销","Undo")} onClick={() => {commitText();dispatch({type:"undo"});}}><CaptureIcon name="undo" /></button>
-        <button type="button" className="snip-button" disabled={locked||!history.future.length} title={t("重做 (Ctrl+Y)","Redo (Ctrl+Y)")} aria-label={t("重做","Redo")} onClick={() => {commitText();dispatch({type:"redo"});}}><CaptureIcon name="redo" /></button>
-        <span className="snip-divider" />
-        <button type="button" className="snip-button" disabled={locked} title={t("识别文字 (OCR)","Recognize text (OCR)")} aria-label="OCR" onClick={() => void output("ocr")}><CaptureIcon name="ocr" /></button>
-        <button type="button" className="snip-button" disabled={disabled} title={t("取消 (Esc)","Cancel (Esc)")} aria-label={t("取消","Cancel")} onClick={cancel}><CaptureIcon name="cancel" /></button>
-        <span className="snip-divider" />
-        <button type="button" className="snip-button" disabled={locked} title={t("贴图 (Ctrl+T)","Pin image (Ctrl+T)")} aria-label={t("贴图","Pin image")} onClick={() => void output("pin")}><CaptureIcon name="pin" /></button>
-        <button type="button" className="snip-button" disabled={locked} title={t("保存 (Ctrl+S)","Save (Ctrl+S)")} aria-label={t("保存","Save")} onClick={() => void output("save")}><CaptureIcon name="save" /></button>
-        <button type="button" className="snip-button snip-copy" disabled={locked} title={t("复制并完成 (Enter)","Copy and finish (Enter)")} aria-label={t("复制并完成","Copy and finish")} onClick={() => void output("copy")}><CaptureIcon name="copy" /></button>
-      </div>
-      {hasOptions && <div className="snip-options" aria-label={t("标注样式","Annotation style")}>
-        {(tool==="rectangle"||tool==="ellipse") && <><button type="button" className="snip-button" aria-label={t("矩形","Rectangle")} title={t("矩形","Rectangle")} aria-pressed={tool==="rectangle"} disabled={locked} onClick={() => setTool("rectangle")}><CaptureIcon name="rectangle" /></button><button type="button" className="snip-button" aria-label={t("椭圆","Ellipse")} title={t("椭圆","Ellipse")} aria-pressed={tool==="ellipse"} disabled={locked} onClick={() => setTool("ellipse")}><CaptureIcon name="ellipse" /></button><span className="snip-divider" /></>}
-        {tool!=="mosaic" && swatches.map(swatch => <button key={swatch} type="button" className="snip-swatch" style={{"--swatch":swatch} as React.CSSProperties} aria-label={`${t("颜色","Color")} ${swatch}`} aria-pressed={color===swatch} disabled={locked} onClick={() => {setColor(swatch);setTextDraft(current => current ? {...current,color:swatch} : null);}} />)}
-        {tool==="text" ? <select aria-label={t("字号","Font size")} value={fontSize} disabled={locked} onChange={event => {const size=Number(event.target.value);setFontSize(size);setTextDraft(current => current ? {...current,fontSize:size/fit.scale} : null);}}>{[16,22,32,44].map(size => <option key={size} value={size}>{size} px</option>)}</select>
-          : <div className="snip-widths" role="group" aria-label={t(tool==="mosaic"?"马赛克大小":"线条粗细",tool==="mosaic"?"Mosaic size":"Stroke width")}>{[1,3,6].map(width => <button key={width} type="button" className="snip-button" aria-pressed={lineWidth===width} aria-label={`${t("大小","Size")} ${width}`} title={`${width} px`} disabled={locked} onClick={() => setLineWidth(width)}><span style={{width:width+2,height:width+2}} /></button>)}</div>}
-      </div>}
+      <CaptureToolbar tool={tool} locked={locked} canUndo={Boolean(history.past.length)} canRedo={Boolean(history.future.length)} t={t}
+        onTool={chooseTool} onUndo={() => {commitText();dispatch({type:"undo"});}} onRedo={() => {commitText();dispatch({type:"redo"});}}
+        onOutput={action => void output(action)} onCancel={cancel} />
+      <ToolOptions tool={tool} color={color} lineWidth={lineWidth} fontSize={fontSize} locked={locked} t={t} onTool={setTool} onWidth={setLineWidth}
+        onColor={value => {setColor(value);setTextDraft(current => current ? {...current,color:value} : null);}}
+        onFontSize={size => {setFontSize(size);setTextDraft(current => current ? {...current,fontSize:size/fit.scale} : null);}} />
     </div>}
     {textDraft && textPosition && <textarea className="snip-text-input" autoFocus aria-label={t("输入标注文字","Annotation text")} placeholder={t("输入文字…","Type text…")} value={textDraft.text}
       style={{left:textPosition.x,top:textPosition.y,color:textDraft.color,fontSize:textDraft.fontSize*fit.scale,width:Math.max(30,Math.min(320,box!.x+box!.width-textPosition.x)),maxHeight:Math.max(24,box!.y+box!.height-textPosition.y)}}
       onChange={event => setTextDraft({...textDraft,text:event.target.value})} onKeyDown={event => {event.stopPropagation();if(event.nativeEvent.isComposing)return;if(event.key==="Escape"){event.preventDefault();setTextDraft(null);}else if(event.key==="Enter"&&(event.ctrlKey||event.metaKey)){event.preventDefault();commitText();}}} />}
     {source && pointer && !tool && (!selected || draggingSelection || altHeld) && <Magnifier source={source} point={pointer} screenPoint={{x:fit.x+pointer.x*fit.scale,y:fit.y+pointer.y*fit.scale}} viewport={viewport} />}
     {!selected && !draggingSelection && <div className="snip-start-hint">{t("点击选窗口，拖动框选 · Esc 取消","Click a window or drag to select · Esc to cancel")}</div>}
-    {(error || busy || feedback) && <div className="snip-feedback" role={error?"alert":"status"}>{error || (busy?t("正在处理…","Processing…"):feedback)}</div>}
+    {(error || busy || feedback) && <div className="snip-feedback" role={error?"alert":"status"} onKeyDown={event => {if(event.key === "Enter" || event.key === " ") event.stopPropagation();}}>{error || (busy?t("正在处理…","Processing…"):feedback)}{error && retryAction && <button disabled={locked} onClick={() => void output(retryAction)}>{t("重试", "Retry")}</button>}</div>}
   </main>;
 }

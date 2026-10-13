@@ -61,8 +61,8 @@ export function PinWindow({ t }: {t: Translate}) {
     const prefix = `${getCurrentWindow().label}-${crypto.randomUUID()}`;
     void Menu.new({items:[
       {id:`${prefix}-copy`, text:t("复制图片", "Copy image"), accelerator:"Ctrl+C", action:() => handlers.current.copy()},
-      {id:`${prefix}-save`, text:t("保存图片…", "Save image…"), accelerator:"Ctrl+S", action:() => handlers.current.save()},
       {id:`${prefix}-ocr`, text:t("识别文字", "Recognize text"), action:() => handlers.current.ocr()},
+      {id:`${prefix}-save`, text:t("保存图片…", "Save image…"), accelerator:"Ctrl+S", action:() => handlers.current.save()},
       {item:"Separator"},
       {id:`${prefix}-reset`, text:t("恢复原始大小", "Reset to original size"), accelerator:"Ctrl+0", action:() => handlers.current.reset()},
       {id:`${prefix}-hide`, text:t("隐藏全部贴图", "Hide all pins"), action:() => void command("toggle_pins").catch(error => notify(errorText(error)))},
@@ -79,7 +79,7 @@ export function PinWindow({ t }: {t: Translate}) {
       if (event.key === "Escape" || event.ctrlKey && event.key.toLowerCase() === "w") { event.preventDefault(); void closeWindow(); }
       else if (event.ctrlKey && event.key.toLowerCase() === "c") {event.preventDefault();handlers.current.copy();}
       else if (event.ctrlKey && event.key.toLowerCase() === "s") {event.preventDefault();handlers.current.save();}
-      else if (event.key === "0") {event.preventDefault();handlers.current.reset();}
+      else if (event.ctrlKey && event.key === "0") {event.preventDefault();handlers.current.reset();}
       else if (event.key === "+" || event.key === "=") {event.preventDefault();void zoom(scale.current * 1.1);}
       else if (event.key === "-") {event.preventDefault();void zoom(scale.current / 1.1);}
     };

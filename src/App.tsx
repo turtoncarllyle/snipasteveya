@@ -15,6 +15,7 @@ export default function App() {
   const [loaded, setLoaded] = useState(!isTauri());
   const [notice, setNotice] = useState("");
   const t = useCallback((zh:string,en:string) => settings.language === "zh-CN" ? zh : en,[settings.language]);
+  useEffect(() => { document.documentElement.lang = settings.language; }, [settings.language]);
   useEffect(() => {
     if (!isTauri()) return;
     let disposed = false;

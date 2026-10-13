@@ -10,7 +10,7 @@ use image::{DynamicImage, ImageFormat};
 use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, io::Cursor};
 use tauri::{
-    menu::{MenuBuilder, MenuItemBuilder},
+    menu::{Menu, MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, WebviewWindow, WindowEvent,
 };
@@ -154,9 +154,87 @@ fn notify_error(app: &AppHandle, message: String) {
     let _ = app.emit_to("main", "app-notice", message);
 }
 
+fn tray_menu(app: &AppHandle, settings: &settings::Settings) -> tauri::Result<Menu<tauri::Wry>> {
+    let zh = settings.language == "zh-CN";
+    let screenshot = MenuItemBuilder::with_id(
+        "screenshot",
+        format!(
+            "{}   {}",
+            if zh { "截图" } else { "Capture" },
+            settings.f1_shortcut
+        ),
+    )
+    .build(app)?;
+    let pin = MenuItemBuilder::with_id(
+        "paste",
+        format!(
+            "{}   {}",
+            if zh { "贴图" } else { "Pin image" },
+            settings.f3_shortcut
+        ),
+    )
+    .build(app)?;
+    let preferences =
+        MenuItemBuilder::with_id("settings", if zh { "设置" } else { "Settings" }).build(app)?;
+    let quit = MenuItemBuilder::with_id("quit", if zh { "退出" } else { "Quit" }).build(app)?;
+    MenuBuilder::new(app)
+        .items(&[&screenshot, &pin])
+        .separator()
+        .items(&[&preferences, &quit])
+        .build()
+}
+
+fn refresh_interface(app: &AppHandle, settings: &settings::Settings) -> tauri::Result<()> {
+    if let Some(tray) = app.tray_by_id("main-tray") {
+        tray.set_menu(Some(tray_menu(app, settings)?))?;
+        tray.set_tooltip(Some(format!(
+            "SnipasteVeya · {} / {}",
+            settings.f1_shortcut, settings.f3_shortcut
+        )))?;
+    }
+    for (_, window) in app.webview_windows() {
+        apply_window_appearance(&window, settings)?;
+    }
+    Ok(())
+}
+
+fn apply_window_appearance(
+    window: &WebviewWindow,
+    settings: &settings::Settings,
+) -> tauri::Result<()> {
+    let theme = match settings.theme.as_str() {
+        "dark" => Some(tauri::Theme::Dark),
+        "light" => Some(tauri::Theme::Light),
+        _ => None,
+    };
+    let zh = settings.language == "zh-CN";
+    window.set_theme(theme)?;
+    if window.label() == "main" {
+        window.set_title(if zh {
+            "SnipasteVeya · 设置"
+        } else {
+            "SnipasteVeya · Settings"
+        })?;
+    } else if window.label().starts_with("ocr-") {
+        window.set_title(if zh {
+            "SnipasteVeya · 文字识别"
+        } else {
+            "SnipasteVeya · Text recognition"
+        })?;
+    }
+    Ok(())
+}
+
 fn main() {
     let shortcut_plugin = tauri_plugin_global_shortcut::Builder::new()
         .with_handler(|app, shortcut, event| {
+            if settings::route_shortcut_recording(
+                app,
+                *shortcut,
+                event.state == ShortcutState::Pressed,
+            ) {
+                return;
+            }
             if event.state != ShortcutState::Pressed {
                 return;
             }
@@ -184,6 +262,8 @@ fn main() {
             settings::load_settings,
             settings::save_settings,
             settings::take_notice,
+            settings::set_shortcut_recording,
+            settings::take_settings_navigation,
             desktop::start_capture,
             desktop::get_capture,
             desktop::crop_capture,
@@ -201,8 +281,12 @@ fn main() {
         ])
         .on_window_event(|window, event| match event {
             WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
+                settings::stop_shortcut_recording(window.app_handle());
                 api.prevent_close();
                 let _ = window.hide();
+            }
+            WindowEvent::Focused(false) if window.label() == "main" => {
+                settings::stop_shortcut_recording(window.app_handle());
             }
             WindowEvent::Destroyed => {
                 desktop::window_destroyed(window.app_handle(), window.label());
@@ -223,15 +307,8 @@ fn main() {
                 };
                 std::env::set_var("OAR_HOME", root);
             }
-            let screenshot =
-                MenuItemBuilder::with_id("screenshot", "截图 / Screenshot").build(app)?;
-            let paste = MenuItemBuilder::with_id("paste", "贴图 / Pin image").build(app)?;
-            let settings = MenuItemBuilder::with_id("settings", "设置 / Settings").build(app)?;
-            let quit = MenuItemBuilder::with_id("quit", "退出 / Quit").build(app)?;
-            let menu = MenuBuilder::new(app)
-                .items(&[&screenshot, &paste, &settings, &quit])
-                .build()?;
-            let mut tray = TrayIconBuilder::new();
+            let menu = tray_menu(app.handle(), &settings::Settings::default())?;
+            let mut tray = TrayIconBuilder::with_id("main-tray");
             if let Some(icon) = app.default_window_icon().cloned() {
                 tray = tray.icon(icon);
             }
@@ -262,6 +339,7 @@ fn main() {
             if let Err(error) = settings::initialize(app.handle()) {
                 notify_error(app.handle(), error);
             }
+            refresh_interface(app.handle(), &settings::current(app.handle())?)?;
             Ok(())
         })
         .run(tauri::generate_context!())

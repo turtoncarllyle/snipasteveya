@@ -51,3 +51,8 @@ export interface WindowImage {
   height: number;
   scale: number;
 }
+
+export interface SettingsNavigation {
+  section: "ocr";
+  providerId?: string;
+}
